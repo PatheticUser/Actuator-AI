@@ -15,6 +15,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 from agents import Agent, Runner, ModelSettings, function_tool
 
 from shared.models.ollama_provider import get_model
+from shared.mcp_config import get_mcp_postgres
 from shared.guardrails.safety import detect_jailbreak
 from shared.tools.db_tools import (
     search_crm, query_tickets, get_ticket_details,
@@ -114,7 +115,8 @@ ASSIGNMENT RULES:
 - Technical → Engineering Team (ENG)
 - Account → Account Team (ACCT)
 - Feature requests → Product Team (PROD)
-- P1/P2: 4-hour SLA | P3/P4: 24-hour SLA"""
+- P1/P2: 4-hour SLA | P3/P4: 24-hour SLA
+- You now have access to 'query' tool via MCP for direct PostgreSQL table reads/joins. Ensure schemas are verified."""
 
 
 # --- Agent ---
@@ -133,6 +135,7 @@ agent = Agent(
         create_jira_ticket,
         update_jira_ticket,
     ],
+    mcp_servers=[get_mcp_postgres()],
     input_guardrails=[detect_jailbreak],
     handoff_description="Operations: CRM updates, Jira tickets, support tickets, cross-system sync, task tracking",
 )

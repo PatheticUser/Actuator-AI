@@ -19,6 +19,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 from agents import Agent, Runner, ModelSettings, function_tool
 
 from shared.models.ollama_provider import get_model
+from shared.mcp_config import get_mcp_postgres
 from shared.guardrails.safety import detect_jailbreak
 
 
@@ -153,7 +154,8 @@ GUIDELINES:
 - Be objective in sentiment scoring — don't inflate or deflate
 - For translations, note any cultural nuances that may affect meaning
 - Communication quality scores should be constructive, not punitive
-- Support primary languages: English, Urdu, Arabic, Chinese, Spanish"""
+- Support primary languages: English, Urdu, Arabic, Chinese, Spanish
+- You now have access to 'query' tool via MCP for direct PostgreSQL table reads/joins. Ensure schemas are verified."""
 
 
 # --- Agent ---
@@ -168,6 +170,7 @@ agent = Agent(
         analyze_sentiment,
         assess_communication_quality,
     ],
+    mcp_servers=[get_mcp_postgres()],
     input_guardrails=[detect_jailbreak],
     handoff_description="Language: translation, sentiment analysis, tone detection, communication QA, language detection",
 )

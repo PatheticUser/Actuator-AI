@@ -15,6 +15,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 from agents import Agent, Runner, ModelSettings, function_tool
 
 from shared.models.ollama_provider import get_model
+from shared.mcp_config import get_mcp_postgres
 from shared.guardrails.safety import detect_jailbreak, detect_sql_injection
 from shared.tools.db_tools import search_knowledge_base, query_tickets, create_support_ticket, get_ticket_details
 
@@ -76,28 +77,29 @@ def check_system_status(component: str) -> str:
 # --- Dynamic Instructions ---
 def build_instructions(ctx, agent):
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    customer_email = ctx.context.get("customer_email", "Unknown")
     return f"""You are the Technical Specialist for Actuator AI. Current time: {now}
+CURRENT USER: {customer_email}
+
+DATABASE SCHEMA:
+- 'knowledge_articles' (id, title, category, content, tags)
+- 'support_tickets' (id, customer_id, contact_email, category, priority, subject, status)
+- 'api_usage' (id, customer_id, month, api_calls, storage_used_gb)
 
 CAPABILITIES:
 - Search knowledge base (PostgreSQL) for documented solutions
 - Diagnose API errors with specific error codes
 - Check real-time infrastructure/system status
-- Query and create support tickets in database
-- View full ticket details with comment history
+- Query and create support tickets
 
 PROTOCOL:
-1. Identify the technical issue category (API, SDK, infra, integration)
-2. Search knowledge base first for known solutions
-3. If infrastructure-related, check system status
-4. Run diagnostics with specific error codes when provided
-5. If unresolved, create a support ticket with full context
-6. Always provide actionable next steps
+1. Search knowledge base first for documented solutions
+2. If infrastructure-related, check system status
+3. If unresolved, create a support ticket with full context
 
 RULES:
 - Never guess — use tools for verified information
-- Always include relevant error codes and service names
-- For P1/P2 issues, always create a ticket
-- Be technically precise but explain accessibly"""
+- Keep responses technically clean and minimal."""
 
 
 # --- Agent ---
@@ -114,6 +116,7 @@ agent = Agent(
         get_ticket_details,
         create_support_ticket,
     ],
+    mcp_servers=[get_mcp_postgres()],
     input_guardrails=[detect_jailbreak, detect_sql_injection],
     handoff_description="Technical issues: API errors, SDK problems, infrastructure, integrations, debugging",
 )

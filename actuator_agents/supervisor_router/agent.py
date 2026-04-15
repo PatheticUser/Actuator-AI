@@ -19,6 +19,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 from agents import Agent, Runner, ModelSettings, function_tool
 
 from shared.models.ollama_provider import get_model
+from shared.mcp_config import get_mcp_postgres
 from shared.guardrails.safety import detect_jailbreak, detect_pii, detect_sql_injection
 
 # --- Import specialist agents ---
@@ -96,37 +97,27 @@ def escalate_to_human(
 # --- Dynamic Instructions ---
 def build_instructions(ctx, agent):
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    customer_email = ctx.context.get("customer_email", "Unknown")
     return f"""You are the Supervisor Router for Actuator AI. Current time: {now}
+CURRENT USER: {customer_email}
 
 YOU ARE THE FRONT DOOR. Every customer message comes to you first.
+GREET USER BY NAME/EMAIL IF KNOWN. DO NOT be overly technical. 
 
-AVAILABLE SPECIALISTS:
-1. Technical Specialist — API errors, SDK issues, infra, debugging
-2. Account & Security — Login, 2FA, password reset, account lockout, security
-3. Billing & Finance — Invoices, payments, refunds, plan changes, usage
-4. Success & Retention — Health checks, renewals, churn prevention, adoption
-5. Operations Sync — CRM updates, Jira tickets, task tracking
-6. Linguistic Agent — Translation, sentiment analysis, tone QA
-7. Audit Agent — Hallucination detection, policy compliance, QA reports
+DATABASE SCHEMA (PostgreSQL):
+- 'customers' (id, company_name, industry, status, health_score, mrr)
+- 'customer_contacts' (id, customer_id, name, email, phone, role, account_locked, login_failures, two_factor_enabled)
+- 'support_tickets' (id, customer_id, contact_email, category, priority, subject, status)
+- 'api_usage' (id, customer_id, month, api_calls, storage_used_gb)
 
 PROTOCOL:
 1. Classify the request using classify_request tool
 2. Based on classification, hand off to the appropriate specialist
 3. If unclear, ask ONE clarifying question before routing
-4. For P1-critical: route immediately, no clarification needed
-5. If request spans multiple domains, route to primary concern first
-
-ESCALATION RULES:
-- Escalate to human if: customer asks for human/manager 3+ times
-- Escalate if: specialist agent cannot resolve after 2 attempts
-- Escalate if: legal threats, regulatory complaints, safety concerns
-- Always provide conversation summary when escalating
 
 RULES:
 - NEVER try to solve issues yourself — always route to specialists
-- Be professional and brief in routing messages
-- Acknowledge the customer's issue before routing
-- For multi-language messages, route to Linguistic Agent first"""
+- Keep responses clean, minimal, and polite."""
 
 
 # --- Supervisor Agent ---
@@ -145,6 +136,7 @@ supervisor = Agent(
         linguistic_agent,
         audit_agent,
     ],
+    mcp_servers=[get_mcp_postgres()],
     input_guardrails=[detect_jailbreak, detect_pii, detect_sql_injection],
 )
 

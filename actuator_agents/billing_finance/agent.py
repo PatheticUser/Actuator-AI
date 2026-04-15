@@ -1,5 +1,5 @@
 """
-Billing & Finance Agent — Actuator AI
+Billing Finance Agent — Actuator AI
 
 All billing lookups, invoices, usage from PostgreSQL.
 Refunds still need HITL approval.
@@ -15,6 +15,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 from agents import Agent, Runner, ModelSettings, function_tool
 
 from shared.models.ollama_provider import get_model
+from shared.mcp_config import get_mcp_postgres
 from shared.guardrails.safety import detect_jailbreak, detect_pii
 from shared.tools.db_tools import get_billing_info, get_invoice, get_usage_breakdown, list_products
 
@@ -112,7 +113,7 @@ def apply_credit(email: str, amount: float, reason: str) -> str:
 # --- Dynamic Instructions ---
 def build_instructions(ctx, agent):
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-    return f"""You are the Billing & Finance Agent for Actuator AI. Current time: {now}
+    return f"""You are the Billing Finance Agent for Actuator AI. Current time: {now}
 
 CAPABILITIES:
 - Billing info lookup from database (subscription, payment method, invoices)
@@ -130,16 +131,18 @@ PROTOCOL:
 5. For plan changes: use change_plan.
 
 TOOL RULES:
-- Only use the tools provided: get_billing_info, get_invoice, get_usage_breakdown, list_products, change_plan, process_refund, apply_credit.
+- Only use the tools provided: get_billing_info, get_invoice, get_usage_breakdown, list_products, change_plan, process_refund, apply_credit, and query (MCP DB tool).
+- 'query' is an MCP provided tool allowing direct SELECT statements across connected schemas. Useful for raw aggregation.
 - Never hallucinate tool names like 'check_refund_status'.
 - Refunds ALWAYS require manager approval.
 - Credits up to PKR 5,000 can be applied directly.
-- Never share full payment card numbers."""
+- Never share full payment card numbers.
+- You now have access to 'query' tool via MCP for direct PostgreSQL table reads/joins. Ensure schemas are verified."""
 
 
 # --- Agent ---
 agent = Agent(
-    name="Billing & Finance Agent",
+    name="Billing Finance Agent",
     instructions=build_instructions,
     model=get_model(),
     model_settings=ModelSettings(temperature=0.2, max_tokens=1000),
@@ -152,9 +155,10 @@ agent = Agent(
         process_refund,
         apply_credit,
     ],
+    mcp_servers=[get_mcp_postgres()],
     input_guardrails=[detect_jailbreak, detect_pii],
     handoff_description="Billing: invoices, payments, refunds, plan changes, usage, credits, billing disputes",
-)
+    )
 
 
 async def main():

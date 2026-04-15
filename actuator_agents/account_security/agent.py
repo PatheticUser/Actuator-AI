@@ -1,5 +1,5 @@
 """
-Account & Security Agent — Actuator AI
+Account Security Agent — Actuator AI
 
 All lookups, unlocks, and security logs hit PostgreSQL directly.
 """
@@ -14,6 +14,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 from agents import Agent, Runner, ModelSettings, function_tool
 
 from shared.models.ollama_provider import get_model
+from shared.mcp_config import get_mcp_postgres
 from shared.guardrails.safety import detect_jailbreak, detect_pii, detect_sql_injection
 from shared.tools.db_tools import lookup_customer_by_email, get_security_log, unlock_account
 
@@ -97,7 +98,14 @@ def update_profile(email: str, field: str, new_value: str) -> str:
 # --- Dynamic Instructions ---
 def build_instructions(ctx, agent):
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-    return f"""You are the Account & Security Agent for Actuator AI. Current time: {now}
+    customer_email = ctx.context.get("customer_email", "Unknown")
+    return f"""You are the Account Security Agent for Actuator AI. Current time: {now}
+CURRENT USER: {customer_email}
+
+DATABASE SCHEMA:
+- 'customers' (id, company_name, industry, status, health_score, mrr)
+- 'customer_contacts' (id, customer_id, name, email, phone, role, account_locked, login_failures, two_factor_enabled)
+- 'security_events' (id, contact_email, event_type, ip_address, location, details)
 
 CAPABILITIES:
 - Account lookup from database (email, status, 2FA, login history)
@@ -105,25 +113,20 @@ CAPABILITIES:
 - Security event log retrieval from database
 - 2FA setup and reset
 - Password reset initiation
-- Profile updates (name, phone, timezone, language)
 
 PROTOCOL:
 1. Always lookup_customer_by_email before any action
 2. For locked accounts: review security log, then unlock with reason
-3. For 2FA reset: explain implications (backup codes invalidated)
-4. For password reset: only send to registered email
-5. For security concerns: pull security log and analyze patterns
+3. For security concerns: pull security log and analyze patterns
 
-SECURITY RULES:
-- NEVER reveal full account details, passwords, or tokens
-- NEVER change email directly — require verification flow
-- Always mask sensitive data in responses
-- Flag suspicious patterns: multiple failed logins, unusual locations"""
+RULES:
+- NEVER reveal full account details or tokens
+- Keep responses clean, minimal, and secure."""
 
 
 # --- Agent ---
 agent = Agent(
-    name="Account & Security Agent",
+    name="Account Security Agent",
     instructions=build_instructions,
     model=get_model(),
     model_settings=ModelSettings(temperature=0.2, max_tokens=1000),
@@ -136,6 +139,7 @@ agent = Agent(
         initiate_password_reset,
         update_profile,
     ],
+    mcp_servers=[get_mcp_postgres()],
     input_guardrails=[detect_jailbreak, detect_pii, detect_sql_injection],
     handoff_description="Account issues: login problems, 2FA, password reset, profile updates, security alerts, account lockout",
 )

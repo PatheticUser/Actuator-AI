@@ -1,5 +1,5 @@
 """
-Success & Retention Agent — Actuator AI
+Success Retention Agent — Actuator AI
 
 Health scores, feature adoption, and usage trends from PostgreSQL.
 """
@@ -14,6 +14,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 from agents import Agent, Runner, ModelSettings, function_tool
 
 from shared.models.ollama_provider import get_model
+from shared.mcp_config import get_mcp_postgres
 from shared.tools.db_tools import get_customer_health, get_feature_adoption, search_crm
 
 
@@ -80,7 +81,7 @@ def log_churn_intervention(email: str, risk_level: str, action_taken: str) -> st
 # --- Dynamic Instructions ---
 def build_instructions(ctx, agent):
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-    return f"""You are the Success & Retention Agent for Actuator AI. Current time: {now}
+    return f"""You are the Success Retention Agent for Actuator AI. Current time: {now}
 
 CAPABILITIES:
 - Customer health score from database (usage trends, MoM changes, risk factors)
@@ -101,12 +102,13 @@ RETENTION RULES:
 - Healthy (80+): celebrate wins, suggest advanced features
 - At-risk (40-79): proactive outreach, training offers
 - Critical (<40): executive escalation, significant discounts, personal CSM
-- Never offer more than 25% discount without escalation"""
+- Never offer more than 25% discount without escalation
+- You now have access to 'query' tool via MCP for direct PostgreSQL table reads/joins. Ensure schemas are verified."""
 
 
 # --- Agent ---
 agent = Agent(
-    name="Success & Retention Agent",
+    name="Success Retention Agent",
     instructions=build_instructions,
     model=get_model(),
     model_settings=ModelSettings(temperature=0.4, max_tokens=1200),

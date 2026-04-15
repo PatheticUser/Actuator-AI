@@ -15,6 +15,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 from agents import Agent, Runner, ModelSettings, function_tool
 
 from shared.models.ollama_provider import get_model
+from shared.mcp_config import get_mcp_postgres
 from shared.guardrails.safety import detect_jailbreak
 from shared.tools.db_tools import get_audit_logs, get_escalations
 
@@ -260,7 +261,8 @@ AUDIT RULES:
 - HIGH hallucination risk requires human review
 - Document violations with specific evidence
 - QA scores should be fair — consider complexity
-- Never modify audited content"""
+- Never modify audited content
+- You now have access to 'query' tool via MCP for direct PostgreSQL table reads/joins. Ensure schemas are verified."""
 
 
 # --- Agent ---
@@ -278,6 +280,7 @@ agent = Agent(
         get_audit_logs,
         get_escalations,
     ],
+    mcp_servers=[get_mcp_postgres()],
     input_guardrails=[detect_jailbreak],
     handoff_description="Audit: QA review, hallucination detection, policy compliance, accuracy scoring, conversation audits",
 )

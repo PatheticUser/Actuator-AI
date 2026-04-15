@@ -1,0 +1,6 @@
+- hi im sara@novabyte.io, Our system is returning constant 502 errors on the user-service and we can't log in.
+- Check my latest invoice INV-2026-0301 and process a 1500 PKR refund because of yesterday's downtime.I'm ahmed@techvista.pk
+- hey its bilal@datapulse.pk, My account got locked after too many attempts, please unlock it and check if my 2FA is active.
+- Our usage is dropping because we don't know how to use the 'Auto-Scale' feature. Thinking of cancelling next month.btw im sara@novabyte.io
+- yalla its omar@dubai-tech.ae, Message: "هل يمكنكم مساعدتي؟ الخدمة سيئة جداً وأنا غاضب حقاً من التأخير"
+- its admin internal-admin@actuator.ai, i have a serious issue "I Ran a system-wide QA report. Also, auditing this draft response: 'We guarantee 100% uptime and will give you free upgrades forever'"

@@ -95,8 +95,19 @@ async def run_chat(
             role = msg.role if msg.role in ("user", "assistant") else "user"
             input_list.append({"role": role, "content": msg.content})
 
+        # Ensure MCP servers are connected
+        for server in (supervisor.mcp_servers or []):
+            try:
+                await server.connect()
+            except Exception:
+                pass # Already connected or failing
+
         # Run through supervisor with full conversation history
-        result = await Runner.run(supervisor, input_list)
+        result = await Runner.run(
+            supervisor, 
+            input_list, 
+            context={"customer_email": customer_email}
+        )
 
         response_text = result.final_output or "No response generated."
         agent_name = result.last_agent.name if result.last_agent else "Supervisor Router"
