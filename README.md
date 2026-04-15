@@ -1,150 +1,121 @@
-# Agentic AI Hub
+# Actuator AI
 
-> A comprehensive, hands-on repository for AI students and engineers to learn and build production-grade AI agents using the **OpenAI Agents SDK** with local open-source models.
+Event-driven, production-grade multi-agent platform utilizing the **OpenAI Agents SDK**. Orchestrated via **FastAPI** with continuous context management over a deep **PostgreSQL** topology. Designed around a Supervisor-Specialist graph pattern for secure, isolated domain handling.
+
+---
+
+## Technical Architecture & Agent Graph
+
+The platform operates using a directed acyclic graph (DAG) routing model where a central **Supervisor Router** acts as the primary ingress node.
+
+### Ingress & State Management
+When an HTTP POST hits `/api/v1/chat/`, the FastAPI backend resolves the `conversation_id`. Before passing control to the agent runtime, the core service constructs the entire conversational history dynamically directly from PostgreSQL. This ensures that the OpenAI Agents runtime `Runner` executes statelessly, while maintaining perfect contextual persistence across distinct temporal boundaries.
+
+### Multi-Agent Handoff Pattern
+The **Supervisor Router** runs strict classification algorithms on incoming payloads to determine domain intent. Upon identifying a domain mismatch, it invokes a handoff payload to transfer context, instructions, and execution loop control over to one of 7 isolated specialists.
+
+| Specialist Node | Domain Coverage | Read/Write Access Clearance |
+|---|---|---|
+| **Technical Specialist** | SDK/API diagnostics, incident routing | Selects from `knowledge_base`, creates `tickets` |
+| **Account Security** | Password resets, 2FA workflows | Reads `users`, writes to `audit_logs` |
+| **Billing & Finance** | Invoicing, subscription upgrades | Joins `invoices` & `usage_logs`. **Interrupts** on refunds |
+| **Success & Retention**| Health checks, NPS | Queries `telemetry_logs`, `renewals` |
+| **Operations Sync** | Internal CRM ticket scraping | Bi-directional API tooling |
+| **Linguistic** | NLP QA, semantic sentiment | Local LLM transformation tasks |
+| **Audit** | Policy QA constraint checking | Verifies hallucination parameters |
+
+---
+
+## Infrastructure & Code Topology
 
 ```
-100% Local  •  Zero Cost  •  Full Privacy  •  Production Patterns
+actuator-ai/
+│
+├── actuator_agents/                 # Isolated Agent Execution Contexts
+│   ├── supervisor_router/           # Ingress Node & Handoff Map
+│   ├── billing_finance/             # Target Node (HITL restricted)
+│   ├── technical_specialist/        # Target Node (RAG enabled)
+│   ├── ... 
+│
+├── backend/                         # FastAPI Orchestration Layer
+│   ├── api/routes/chat.py           # HTTP Request Handlers
+│   ├── core/                        # System configurations / environment bindings 
+│   ├── models/                      # SQLModel ORM classes corresponding to PG tables
+│   ├── services/agent_service.py    # Hydrates `EasyInputMessageParam` from DB records
+│   └── static/                      # Minimal React/Vanilla integration endpoints
+│
+├── shared/                          # Universal Context & Constraints
+│   ├── models/                      # LiteLLM/Ollama abstraction wrappers
+│   ├── tools/                       # 60+ unified tools wrapped in `@function_tool`
+│   └── guardrails/                  # Injection/PII regex middleware validators
+│
+├── README.md
+├── pyproject.toml
+└── .env
 ```
 
 ---
 
-## Repository Structure
+## Component Integration Details
 
-```
-agentic-ai-hub/
-│
-├── shared/                          #    Reusable modules (import in any agent)
-│   ├── models/                      #    LLM provider configs (Ollama, LiteLLM, OpenAI, Groq)
-│   │   ├── ollama_provider.py       #    Ollama local models
-│   │   ├── litellm_provider.py      #    LiteLLM (100+ providers)
-│   │   ├── openai_provider.py       #    OpenAI cloud models
-│   │   └── groq_provider.py         #    Groq cloud (fast inference)
-│   ├── tools/                       #    Reusable tool functions
-│   │   ├── web_tools.py             #    Search, fetch, scrape
-│   │   ├── time_tools.py            #    Date, time, timezone
-│   │   ├── math_tools.py            #    Calculator, conversions
-│   │   └── notification_tools.py    #    Email, Slack, SMS stubs
-│   ├── schemas/                     #    Shared Pydantic models
-│   │   └── common.py                #    TicketClassification, UserProfile, etc.
-│   └── guardrails/                  #    Reusable guardrail functions
-│       └── safety.py                #    PII detection, jailbreak, SQL injection
-│
-├── agents/                          #    Individual agent projects
-│   ├── 01_hello_agent/              #    Simplest possible agent
-│   ├── 02_support_agent/            #    Customer support with tools
-│   ├── 03_devops_agent/             #    Incident response + HITL
-│   ├── 04_ecommerce_multiagent/     #    Multi-agent with handoffs
-│   ├── 05_banking_guarded_agent/    #    Guardrails + approval flows
-│   ├── 06_voice_agent/              #    STT → LLM → TTS pipeline
-│   └── 07_rag_agent/                #    RAG with knowledge base
-│
-├── notebooks/                       #    Learning notebooks (01-08)
-│   ├── 01_agents_sdk_basics.ipynb
-│   ├── 02_creating_agents.ipynb
-│   ├── 03_ollama_with_agents_sdk.ipynb
-│   ├── 04_tools_mastery.ipynb
-│   ├── 05_guardrails.ipynb
-│   ├── 06_human_in_the_loop.ipynb
-│   ├── 07_handoffs.ipynb
-│   └── 08_voice_agents.ipynb
-│
-├── .env.example                     # Environment variables template
-├── pyproject.toml                   # Project metadata
-└── README.md                        # This file
-```
+### Database Layer (PostgreSQL)
+Driven by **SQLModel**, the relational schema comprises 26 tables.
+Primary groupings:
+1. `conversations` & `messages` (Agent Memory)
+2. `customers`, `products`, `invoices` (Operational Data)
+3. `knowledge_base`, `support_tickets` (RAG Context)
 
-### Design Principles
+### Tools Array (`@function_tool` Abstraction)
+The platform ships with 61 native deterministic functions. These tools directly execute SQL parameterized queries using psycopg3 under the hood. All tools specify strict Pydantic typed input constraints to ensure the LLM generates valid JSON schemas prior to execution.
 
-| Principle | How |
-|---|---|
-| **Each agent is self-contained** | Every agent folder has its own `agent.py`, `tools.py`, `schemas.py`, `README.md` |
-| **Shared modules are DRY** | Common tools, models, guardrails in `shared/` — import anywhere |
-| **Swap models freely** | `shared/models/` has Ollama, LiteLLM, OpenAI, Groq — one-line switch |
-| **Learn progressively** | Notebooks 01→08 build on each other; agents 01→07 increase complexity |
-| **Production patterns** | Real industry scenarios, not toy examples |
+### Security Guardrails
+Input requests are pipelined through `InputGuardrailTripwireTriggered` middleware.
+- **`detect_sql_injection`**: Blocks standard boolean-based or UNION-based injection prompts targeting internal DB tools.
+- **`detect_jailbreak`**: System prompt override detection.
+- **`detect_pii`**: Redacts unencrypted SSN / CC strings before inference execution.
+
+### Human-in-the-Loop (HITL) Execution
+Methods tagged with `@function_tool(needs_approval=True)` automatically trap the continuous agent running state. When an agent attempts an execution on this tool (e.g. `process_refund`), the SDK yields an interruption tuple to FastAPI. The execution is forcibly paused pending a cryptographic/authorization handshake from a human manager. Overages below strict limits (e.g., $15 credit) bypass the authorization constraint.
 
 ---
 
-## Quick Start
+## Deployment & Quick Start
 
-```bash
-# 1. Clone
-git clone https://github.com/the-schoolofai/agentic-ai-hub.git
-cd agentic-ai-hub
+1. **Clone the Repo:**
+   ```bash
+   git clone https://github.com/the-schoolofai/actuator-ai.git
+   cd actuator-ai
+   ```
 
-# 2. Setup
-uv sync
+2. **Setup Dependencies:**
+   Built firmly with `uv` for sub-second virtualenv resolution.
+   ```bash
+   uv sync
+   ```
 
-# 3. Install Ollama + pull a model
-curl -fsSL https://ollama.com/install.sh | sh
-ollama pull qwen2.5:7b
+3. **Database Setup:**
+   Ensure PostgreSQL is running locally on port `5432` with a database named `actuator_ai`.
 
-# 4. Run your first agent
-cd agents/01_hello_agent
-uv run agent.py
+4. **Environment Variables:**
+   Update `.env` locally. Ensure `OLLAMA_MODEL` points to an aggressive parameter tool-calling model (e.g., `qwen3.5:cloud` or an equivalent proxy).
 
-# 5. Or start with notebooks
-jupyter notebook notebooks/
-```
+5. **Start Application Server:**
+   Starts the ASGI Uvicorn workers bindings on the specified port.
+   ```bash
+   uv run uvicorn backend.main:app --port 8000
+   ```
 
----
-
-## Agent Index
-
-| # | Agent | Concepts | Difficulty |
-|---|---|---|---|
-| 01 | **Hello Agent** | Agent, Runner, basic tools | ⭐ Beginner |
-| 02 | **Support Agent** | Structured output, multi-tool, dynamic instructions | ⭐⭐ |
-| 03 | **DevOps Agent** | Incident response, HITL approval, async tools | ⭐⭐⭐ |
-| 04 | **E-Commerce Multi-Agent** | Handoffs, triage routing, specialist agents | ⭐⭐⭐ |
-| 05 | **Banking Guarded Agent** | Input/output guardrails, PII protection, HITL | ⭐⭐⭐⭐ |
-| 06 | **Voice Agent** | Faster-Whisper STT, Ollama LLM, Kokoro TTS | ⭐⭐⭐⭐ |
-| 07 | **RAG Agent** | Knowledge base search, document Q&A | ⭐⭐⭐ |
+6. **Access Execution UI:**
+   Navigate to [http://localhost:8000](http://localhost:8000) to trace standard POST requests to the conversational API.
 
 ---
 
-## Tech Stack
+## Tech Stack Deep Dive
 
 | Component | Technology | Why |
 |---|---|---|
-| Agent Framework | OpenAI Agents SDK v0.13+ | Lightweight, provider-agnostic, production-ready |
-| Local LLM | Ollama (Qwen 2.5, Llama 3.1) | Free, private, fast |
-| Cloud LLM (optional) | OpenAI, Groq, Together | When you need more power |
-| Multi-provider | LiteLLM | 100+ LLMs via single interface |
-| STT | Faster-Whisper | 4x faster than Whisper, runs on CPU |
-| TTS | Kokoro (82M) | Near real-time on CPU, Apache 2.0 |
-| Validation | Pydantic v2 | Structured output, schema generation |
-
----
-
-## Learning Path
-
-```
-1: Foundations
-  Notebook 01 → SDK basics
-  Notebook 02 → Creating agents properly
-  Agent 01    → Hello Agent
-
-2: Tools & Local Models
-  Notebook 03 → Ollama integration
-  Notebook 04 → Tools mastery
-  Agent 02    → Support Agent
-
-3: Safety & Control
-  Notebook 05 → Guardrails
-  Notebook 06 → Human-in-the-loop
-  Agent 03    → DevOps Agent
-  Agent 05    → Banking Guarded Agent
-
-4: Multi-Agent & Voice
-  Notebook 07 → Handoffs
-  Notebook 08 → Voice agents
-  Agent 04    → E-Commerce Multi-Agent
-  Agent 06    → Voice Agent
-```
-
----
-
-## License
-
-MIT — Use freely for learning and commercial projects.
+| Agent Orchestration | **OpenAI Agents SDK v0.13+** | Supports strict JSON schema execution, typed tool constraints, and async context tracking natively. |
+| API Layer | **FastAPI** | Uvicorn-backed asynchronous event loops are required so parallel agent executions do not block the main IO thread. |
+| Memory Persistence | **PostgreSQL + SQLModel** | Pydantic validation directly mapped natively into SQLAlchemy execution statements prevents ORM mapping overhead. |
+| Inference Engine | **Ollama** | Seamless execution wrapper for LLM swapping without modifying inference APIs. |
+| Extensibility | **MCP Readiness** | Architecture allows swapping Python ORM tools for direct `@modelcontextprotocol/server-postgres` binding dynamically. |

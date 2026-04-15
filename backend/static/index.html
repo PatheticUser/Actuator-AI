@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Actuator AI - Basic Chat</title>
+    <style>
+        :root {
+            --bg-color: #121212;
+            --chat-bg: #1e1e1e;
+            --user-msg: #303030;
+            --ai-msg: #2b492d;
+            --text-color: #f5f5f5;
+            --accent: #4caf50;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            height: 100vh;
+        }
+        .container {
+            width: 100%;
+            max-width: 800px;
+            display: flex;
+            flex-direction: column;
+            background: var(--chat-bg);
+            box-shadow: 0 0 15px rgba(0,0,0,0.5);
+        }
+        .header {
+            padding: 20px;
+            background: #111;
+            border-bottom: 1px solid #333;
+            text-align: center;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .header h1 {
+            margin: 0;
+            font-size: 1.2rem;
+            font-weight: 500;
+        }
+        .header input {
+            background: #222;
+            border: 1px solid #444;
+            color: white;
+            padding: 8px 12px;
+            border-radius: 4px;
+            outline: none;
+        }
+        .chat-box {
+            flex-grow: 1;
+            padding: 20px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+        .message {
+            max-width: 80%;
+            padding: 12px 16px;
+            border-radius: 8px;
+            line-height: 1.4;
+            white-space: pre-wrap;
+        }
+        .message.user {
+            align-self: flex-end;
+            background: var(--user-msg);
+            border-bottom-right-radius: 0;
+        }
+        .message.ai {
+            align-self: flex-start;
+            background: var(--ai-msg);
+            border-bottom-left-radius: 0;
+            border-left: 3px solid var(--accent);
+        }
+        .agent-name {
+            font-size: 0.8rem;
+            color: #aaa;
+            margin-bottom: 5px;
+            font-weight: bold;
+            display: block;
+        }
+        .input-area {
+            padding: 20px;
+            background: #111;
+            border-top: 1px solid #333;
+            display: flex;
+            gap: 10px;
+        }
+        .input-area textarea {
+            flex-grow: 1;
+            background: #222;
+            border: 1px solid #444;
+            color: white;
+            padding: 12px;
+            border-radius: 6px;
+            resize: none;
+            outline: none;
+            font-family: inherit;
+        }
+        .input-area button {
+            background: var(--accent);
+            color: white;
+            border: none;
+            padding: 0 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: background 0.2s;
+        }
+        .input-area button:hover {
+            background: #45a049;
+        }
+        .loading {
+            align-self: flex-start;
+            color: #888;
+            font-style: italic;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="header">
+        <h1>Actuator AI Portal</h1>
+        <input type="text" id="email" placeholder="Customer Email" value="ahmed@techvista.pk">
+    </div>
+    
+    <div class="chat-box" id="chatBox">
+        <div class="message ai">
+            <span class="agent-name">System</span>
+            Welcome to Actuator AI! Send a message below.
+        </div>
+    </div>
+    <div class="message loading" id="loadingIndicator" style="margin-left: 20px; display: none;">Agent is typing...</div>
+    
+    <div class="input-area">
+        <textarea id="msgInput" rows="2" placeholder="Describe your issue or request... (Press Enter to send)"></textarea>
+        <button id="sendBtn">Send</button>
+    </div>
+</div>
+
+<script>
+    let conversationId = null;
+    const chatBox = document.getElementById('chatBox');
+    const msgInput = document.getElementById('msgInput');
+    const sendBtn = document.getElementById('sendBtn');
+    const emailInput = document.getElementById('email');
+    const loading = document.getElementById('loadingIndicator');
+
+    function addMessage(text, isUser, agentName = '') {
+        const div = document.createElement('div');
+        div.className = 'message ' + (isUser ? 'user' : 'ai');
+        
+        if (!isUser && agentName) {
+            const span = document.createElement('span');
+            span.className = 'agent-name';
+            span.textContent = agentName;
+            div.appendChild(span);
+        }
+        
+        div.appendChild(document.createTextNode(text));
+        chatBox.appendChild(div);
+        chatBox.scrollTop = chatBox.scrollHeight;
+    }
+
+    async function sendMessage() {
+        const text = msgInput.value.trim();
+        const email = emailInput.value.trim();
+        if (!text) return;
+
+        addMessage(text, true);
+        msgInput.value = '';
+        loading.style.display = 'block';
+
+        const payload = {
+            message: text,
+            customer_email: email || null
+        };
+        if (conversationId) {
+            payload.conversation_id = conversationId;
+        }
+
+        try {
+            const res = await fetch('/api/v1/chat/', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const data = await res.json();
+            
+            if (data.conversation_id) {
+                conversationId = data.conversation_id;
+            }
+            
+            let responseText = data.response;
+            if (data.needs_approval) {
+                responseText += '\n\n[System: This action requires manager approval (' + data.approval_items.join(', ') + ') - The workflow is paused.]';
+            }
+            
+            addMessage(responseText, false, data.agent_name || 'System');
+        } catch (e) {
+            addMessage("Error connecting to server. Is FastAPI running?", false, "System Error");
+        } finally {
+            loading.style.display = 'none';
+            chatBox.scrollTop = chatBox.scrollHeight;
+        }
+    }
+
+    sendBtn.addEventListener('click', sendMessage);
+    msgInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            sendMessage();
+        }
+    });
+</script>
+
+</body>
+</html>
