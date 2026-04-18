@@ -2,7 +2,7 @@
 Audit Agent — Actuator AI
 
 QA, hallucination detection, policy compliance.
-audit_logs and escalations from PostgreSQL.
+audit_logs and escalations via MCP PostgreSQL.
 """
 
 import sys
@@ -15,9 +15,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 from agents import Agent, Runner, ModelSettings, function_tool
 
 from shared.models.ollama_provider import get_model
-from shared.mcp_config import get_mcp_postgres
+from shared.mcp_config import create_mcp_postgres
 from shared.guardrails.safety import detect_jailbreak
-from shared.tools.db_tools import get_audit_logs, get_escalations
 
 
 # --- Tools ---
@@ -109,7 +108,6 @@ def audit_conversation(conversation_id: str) -> str:
     """
     from shared.tools.db_tools import _query
 
-    # Get conversation
     convs = _query(
         "SELECT * FROM conversations WHERE id = %s", (conversation_id,)
     )
@@ -117,14 +115,12 @@ def audit_conversation(conversation_id: str) -> str:
         return f"Conversation not found: {conversation_id}"
 
     c = convs[0]
-    # Get audit entries
     audits = _query(
         "SELECT agent_name, action, hallucination_risk, policy_compliant, quality_score, latency_ms, tokens_used "
         "FROM audit_logs WHERE conversation_id = %s ORDER BY created_at",
         (conversation_id,),
     )
 
-    # Get messages count
     msgs = _query(
         "SELECT count(*) as cnt FROM messages WHERE conversation_id = %s",
         (conversation_id,),
@@ -237,32 +233,41 @@ def generate_qa_report(agent_name: str = "") -> str:
     return "\n".join(lines)
 
 
-# --- Dynamic Instructions ---
 def build_instructions(ctx, agent):
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    customer_email = ctx.context.get("customer_email", "Unknown")
     return f"""You are the Audit Agent for Actuator AI. Current time: {now}
+CURRENT USER: {customer_email}
 
-CAPABILITIES:
-- Hallucination detection (compare response vs tool output)
-- Policy compliance checking (PII, promises, competitors, refunds)
-- Conversation audit trail from database
-- Response accuracy scoring
-- QA report generation from audit_logs database
-- Audit log and escalation retrieval from database
+DATABASE ACCESS: You have a 'query' MCP tool for direct PostgreSQL access.
+ALWAYS use 'query' MCP tool to fetch real audit logs and escalations.
+NEVER invent audit scores, quality metrics, or compliance results.
 
-PROTOCOL:
-1. For hallucination: compare against actual tool outputs
-2. For compliance: check all categories (PII, promises, competitors, refunds)
-3. For audit trails: pull from DB, show agent chain and metrics
-4. For reports: aggregate from audit_logs table, highlight issues
+DATABASE SCHEMA:
+- 'audit_logs' (id, conversation_id, agent_name, action, hallucination_risk VARCHAR, policy_compliant BOOL, quality_score INT, latency_ms INT, tokens_used INT, created_at)
+- 'escalations' (id, conversation_id, severity, reason, status, assigned_to, created_at)
+- 'conversations' (id, customer_email, started_at, ended_at, status, last_agent, summary)
+- 'messages' (id, conversation_id, role, content, agent_name, created_at)
+
+STEP-BY-STEP PROTOCOL:
+1. For QA report: call generate_qa_report tool (queries audit_logs internally)
+2. For hallucination check: call check_hallucination with agent response + tool outputs
+3. For policy compliance: call check_policy_compliance with response text + agent name
+4. For conversation audit: call audit_conversation with the conversation UUID
+5. For accuracy scoring: call score_response_accuracy with response + expected outcome
+6. For raw audit log queries: use 'query' MCP tool:
+   SELECT agent_name, action, hallucination_risk, policy_compliant, quality_score, created_at FROM audit_logs ORDER BY created_at DESC LIMIT 10
+7. For open escalations: use 'query' MCP tool:
+   SELECT id, severity, reason, status, assigned_to FROM escalations WHERE status = 'open' ORDER BY created_at DESC
+
+AVAILABLE TOOLS: query (MCP), check_hallucination, check_policy_compliance, audit_conversation, score_response_accuracy, generate_qa_report
 
 AUDIT RULES:
-- CRITICAL violations (PII) must be flagged immediately
-- HIGH hallucination risk requires human review
-- Document violations with specific evidence
-- QA scores should be fair — consider complexity
-- Never modify audited content
-- You now have access to 'query' tool via MCP for direct PostgreSQL table reads/joins. Ensure schemas are verified."""
+- CRITICAL violations (PII exposure) must be flagged immediately
+- HIGH hallucination risk requires human review recommendation
+- Document violations with specific evidence from the text
+- QA scores should be fair — consider response complexity
+- Never modify audited content"""
 
 
 # --- Agent ---
@@ -277,10 +282,7 @@ agent = Agent(
         audit_conversation,
         score_response_accuracy,
         generate_qa_report,
-        get_audit_logs,
-        get_escalations,
     ],
-    mcp_servers=[get_mcp_postgres()],
     input_guardrails=[detect_jailbreak],
     handoff_description="Audit: QA review, hallucination detection, policy compliance, accuracy scoring, conversation audits",
 )

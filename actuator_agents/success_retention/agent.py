@@ -1,7 +1,7 @@
 """
 Success Retention Agent — Actuator AI
 
-Health scores, feature adoption, and usage trends from PostgreSQL.
+Health scores, feature adoption, and usage trends via MCP PostgreSQL.
 """
 
 import sys
@@ -14,8 +14,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 from agents import Agent, Runner, ModelSettings, function_tool
 
 from shared.models.ollama_provider import get_model
-from shared.mcp_config import get_mcp_postgres
-from shared.tools.db_tools import get_customer_health, get_feature_adoption, search_crm
+from shared.mcp_config import create_mcp_postgres
+from shared.guardrails.safety import detect_jailbreak
 
 
 # --- Agent-specific tools ---
@@ -81,29 +81,43 @@ def log_churn_intervention(email: str, risk_level: str, action_taken: str) -> st
 # --- Dynamic Instructions ---
 def build_instructions(ctx, agent):
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    customer_email = ctx.context.get("customer_email", "Unknown")
     return f"""You are the Success Retention Agent for Actuator AI. Current time: {now}
+CURRENT USER: {customer_email}
 
-CAPABILITIES:
-- Customer health score from database (usage trends, MoM changes, risk factors)
-- Feature adoption data from database (enabled/disabled features per customer)
-- CRM data lookup (company info, ticket history, lifetime value)
-- Check-in scheduling
-- Renewal offer creation (up to 25% discount)
-- Churn intervention logging
+DATABASE ACCESS: You have a 'query' MCP tool for direct PostgreSQL access.
+ALWAYS call 'query' to get real customer health and usage data before responding.
+NEVER guess health scores, feature flags, or NPS values.
 
-PROTOCOL:
-1. Always pull get_customer_health first
-2. For at-risk (score < 60): check feature adoption, identify gaps
-3. For critical (score < 30): immediate intervention — schedule call + log action
-4. For renewals: assess health before offering discounts
-5. Use search_crm for full company context
+DATABASE SCHEMA:
+- 'customers' (id, company_name, industry, company_size, region, status, health_score, mrr, created_at)
+- 'customer_contacts' (id, customer_id, name, email, phone, role)
+- 'subscriptions' (id, customer_id, product_id, status, billing_cycle, current_period_end, auto_renew)
+- 'products' (id, name, slug, price_monthly, api_calls_limit, storage_gb, support_tier)
+- 'api_usage' (id, customer_id, month VARCHAR, api_calls INT, storage_used_gb NUMERIC, agent_sessions INT, webhook_events INT, overage_amount NUMERIC)
+- 'feature_flags' (id, customer_id, feature_name, enabled BOOL, enabled_at TIMESTAMP)
+- 'feedback' (id, customer_id, rating INT, nps_score INT, comment TEXT, created_at)
+- 'support_tickets' (id, customer_id, contact_email, category, priority, subject, status, created_at)
+- 'invoices' (id, customer_id, total, currency, status)
+
+STEP-BY-STEP PROTOCOL:
+1. Query health score first:
+   SELECT c.company_name, c.health_score, c.mrr, c.status, p.name as plan, s.current_period_end, s.auto_renew FROM customers c JOIN customer_contacts cc ON cc.customer_id = c.id JOIN subscriptions s ON s.customer_id = c.id JOIN products p ON p.id = s.product_id WHERE cc.email ILIKE '{customer_email}'
+2. Query usage trend:
+   SELECT month, api_calls, agent_sessions FROM api_usage WHERE customer_id = (SELECT customer_id FROM customer_contacts WHERE email ILIKE '{customer_email}') ORDER BY month DESC LIMIT 3
+3. Query feature adoption:
+   SELECT feature_name, enabled, enabled_at FROM feature_flags WHERE customer_id = (SELECT customer_id FROM customer_contacts WHERE email ILIKE '{customer_email}') ORDER BY feature_name
+4. Query NPS/feedback:
+   SELECT rating, nps_score, comment FROM feedback WHERE customer_id = (SELECT customer_id FROM customer_contacts WHERE email ILIKE '{customer_email}') ORDER BY created_at DESC LIMIT 1
+5. Based on findings call: schedule_check_in, create_renewal_offer, or log_churn_intervention
+
+AVAILABLE TOOLS: query (MCP), schedule_check_in, create_renewal_offer, log_churn_intervention
 
 RETENTION RULES:
 - Healthy (80+): celebrate wins, suggest advanced features
 - At-risk (40-79): proactive outreach, training offers
 - Critical (<40): executive escalation, significant discounts, personal CSM
-- Never offer more than 25% discount without escalation
-- You now have access to 'query' tool via MCP for direct PostgreSQL table reads/joins. Ensure schemas are verified."""
+- Never offer more than 25% discount without escalation"""
 
 
 # --- Agent ---
@@ -113,13 +127,11 @@ agent = Agent(
     model=get_model(),
     model_settings=ModelSettings(temperature=0.4, max_tokens=1200),
     tools=[
-        get_customer_health,
-        get_feature_adoption,
-        search_crm,
         schedule_check_in,
         create_renewal_offer,
         log_churn_intervention,
     ],
+    input_guardrails=[detect_jailbreak],
     handoff_description="Customer success: health checks, renewals, churn prevention, feature adoption, proactive outreach",
 )
 

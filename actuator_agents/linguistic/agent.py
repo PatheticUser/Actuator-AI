@@ -19,7 +19,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 from agents import Agent, Runner, ModelSettings, function_tool
 
 from shared.models.ollama_provider import get_model
-from shared.mcp_config import get_mcp_postgres
+from shared.mcp_config import create_mcp_postgres
 from shared.guardrails.safety import detect_jailbreak
 
 
@@ -28,7 +28,6 @@ from shared.guardrails.safety import detect_jailbreak
 @function_tool
 def detect_language(text: str) -> str:
     """Detect the language of input text."""
-    # Production: use langdetect or fasttext
     indicators = {
         "ur": ["کیا", "ہے", "میں", "اور", "سے"],
         "ar": ["هل", "في", "من", "على", "أن"],
@@ -44,7 +43,6 @@ def detect_language(text: str) -> str:
 @function_tool
 def translate_text(text: str, source_lang: str, target_lang: str) -> str:
     """Translate text between languages. Use ISO 639-1 codes."""
-    # Production: integrate Google Translate API, DeepL, or local model
     return (
         f"Translation ({source_lang} → {target_lang}):\n"
         f"  Original: {text[:200]}\n"
@@ -56,10 +54,8 @@ def translate_text(text: str, source_lang: str, target_lang: str) -> str:
 @function_tool
 def analyze_sentiment(text: str) -> str:
     """Analyze sentiment of customer message. Returns score and breakdown."""
-    # Production: use fine-tuned model or API
     negative_words = ["angry", "frustrated", "terrible", "worst", "hate", "ridiculous", "unacceptable"]
     positive_words = ["great", "thanks", "excellent", "love", "amazing", "helpful", "perfect"]
-    neutral_words = ["okay", "fine", "sure", "understood"]
 
     text_lower = text.lower()
     neg = sum(1 for w in negative_words if w in text_lower)
@@ -131,31 +127,31 @@ def assess_communication_quality(agent_response: str) -> str:
     )
 
 
-# --- Dynamic Instructions ---
 def build_instructions(ctx, agent):
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    customer_email = ctx.context.get("customer_email", "Unknown")
     return f"""You are the Linguistic Agent for Actuator AI. Current time: {now}
+CURRENT USER: {customer_email}
 
-CAPABILITIES:
-- Language detection for incoming messages
-- Text translation between supported languages
-- Sentiment analysis with urgency scoring
-- Communication quality assessment for agent responses
-- Tone analysis and improvement suggestions
+DATABASE ACCESS: You have a 'query' MCP tool for direct PostgreSQL access if needed.
+NEVER guess sentiment scores — base all analysis on the actual message text using your tools.
 
-PROTOCOL:
-1. For non-English messages: detect language first, then translate
-2. For sentiment analysis: provide score, label, and actionable recommendation
-3. For QA: assess communication quality and suggest improvements
-4. Always preserve original meaning in translations
-5. Flag high-urgency negative sentiment for immediate attention
+STEP-BY-STEP PROTOCOL:
+1. For non-English messages: call detect_language first, then translate_text (ar/ur → en)
+2. Always call analyze_sentiment on the customer message — report score, label, urgency
+3. For QA requests: call assess_communication_quality with the agent response text
+4. If sentiment is NEGATIVE and urgency is HIGH: flag explicitly for immediate escalation
+5. Optionally query past feedback via MCP to establish customer NPS baseline:
+   SELECT rating, nps_score, comment FROM feedback WHERE customer_id = (SELECT customer_id FROM customer_contacts WHERE email ILIKE '{customer_email}') ORDER BY created_at DESC LIMIT 1
+
+AVAILABLE TOOLS: query (MCP), detect_language, translate_text, analyze_sentiment, assess_communication_quality
 
 GUIDELINES:
 - Be objective in sentiment scoring — don't inflate or deflate
 - For translations, note any cultural nuances that may affect meaning
 - Communication quality scores should be constructive, not punitive
 - Support primary languages: English, Urdu, Arabic, Chinese, Spanish
-- You now have access to 'query' tool via MCP for direct PostgreSQL table reads/joins. Ensure schemas are verified."""
+- HIGH urgency negative sentiment → recommend immediate escalation"""
 
 
 # --- Agent ---
@@ -170,7 +166,6 @@ agent = Agent(
         analyze_sentiment,
         assess_communication_quality,
     ],
-    mcp_servers=[get_mcp_postgres()],
     input_guardrails=[detect_jailbreak],
     handoff_description="Language: translation, sentiment analysis, tone detection, communication QA, language detection",
 )
@@ -179,8 +174,6 @@ agent = Agent(
 async def main():
     queries = [
         "Analyze this customer message: 'This is RIDICULOUS! I've been waiting 3 weeks and nobody cares!'",
-        # "Translate this to Urdu: 'Your account has been upgraded to Pro plan.'",
-        # "Score this agent response: 'Balance is 5000. Anything else?'",
     ]
     for query in queries:
         print(f"\n{'='*60}\nQuery: {query}")

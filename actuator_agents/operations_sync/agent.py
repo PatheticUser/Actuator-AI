@@ -1,7 +1,7 @@
 """
 Operations Sync Agent — Actuator AI
 
-CRM, tickets, and operations data from PostgreSQL.
+CRM, tickets, and operations data via MCP PostgreSQL.
 Jira integration is stub-ready for real API.
 """
 
@@ -15,12 +15,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 from agents import Agent, Runner, ModelSettings, function_tool
 
 from shared.models.ollama_provider import get_model
-from shared.mcp_config import get_mcp_postgres
+from shared.mcp_config import create_mcp_postgres
 from shared.guardrails.safety import detect_jailbreak
-from shared.tools.db_tools import (
-    search_crm, query_tickets, get_ticket_details,
-    create_support_ticket, get_notifications,
-)
+from shared.tools.db_tools import create_support_ticket
 
 
 # --- Agent-specific tools ---
@@ -37,7 +34,6 @@ def update_crm_note(customer_email: str, note: str, interaction_type: str) -> st
     valid_types = ["call", "email", "chat", "meeting", "internal"]
     if interaction_type.lower() not in valid_types:
         return f"Invalid type '{interaction_type}'. Use: {', '.join(valid_types)}"
-    # Production: write to CRM API (HubSpot, Salesforce, etc.)
     return (
         f"CRM note added:\n"
         f"  Customer: {customer_email}\n"
@@ -58,7 +54,6 @@ def create_jira_ticket(project: str, title: str, description: str, priority: str
         priority: 'P1', 'P2', 'P3', 'P4'.
         assignee: Person to assign to.
     """
-    # Production: call Jira REST API
     ticket_key = f"{project.upper()}-{abs(hash(title)) % 10000:04d}"
     return (
         f"Jira ticket created:\n"
@@ -94,29 +89,41 @@ def update_jira_ticket(ticket_key: str, status: str, comment: str) -> str:
 # --- Dynamic Instructions ---
 def build_instructions(ctx, agent):
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    customer_email = ctx.context.get("customer_email", "Unknown")
     return f"""You are the Operations Sync Agent for Actuator AI. Current time: {now}
+CURRENT USER: {customer_email}
 
-CAPABILITIES:
-- CRM search from database (company info, tickets, lifetime value)
-- Support ticket queries and creation (writes to PostgreSQL)
-- Full ticket details with comment history
-- Notification history lookup
-- Jira ticket creation and updates (stub for API integration)
-- CRM note logging
+DATABASE ACCESS: You have a 'query' MCP tool for direct PostgreSQL access.
+ALWAYS call 'query' to fetch real CRM, ticket, and notification data before responding.
+NEVER invent ticket IDs, CRM data, or notification history.
 
-PROTOCOL:
-1. For customer interactions: search CRM first, then log notes
-2. For engineering issues: create Jira ticket + support ticket
-3. For status checks: use get_ticket_details for full history
-4. Ensure data consistency — always create DB records
+DATABASE SCHEMA:
+- 'customers' (id, company_name, industry, company_size, region, status, health_score, mrr, created_at)
+- 'customer_contacts' (id, customer_id, name, email, phone, role)
+- 'support_tickets' (id, customer_id, contact_email, category, priority, subject, description, status, assigned_to, sla_deadline, first_response_at, resolved_at, satisfaction, created_at)
+- 'ticket_comments' (id, ticket_id, author, author_type, content, is_internal BOOL, created_at)
+- 'notifications_log' (id, recipient, channel, event_type, subject, status, sent_at)
+- 'subscriptions' (id, customer_id, product_id, status)
+- 'products' (id, name, slug, price_monthly)
+- 'invoices' (id, customer_id, total, currency, status)
+
+STEP-BY-STEP PROTOCOL:
+1. For CRM lookup: query customers+subscriptions+products via MCP:
+   SELECT c.id, c.company_name, c.industry, c.status, c.health_score, c.mrr, p.name as plan FROM customers c JOIN customer_contacts cc ON cc.customer_id = c.id LEFT JOIN subscriptions s ON s.customer_id = c.id LEFT JOIN products p ON p.id = s.product_id WHERE cc.email ILIKE '{customer_email}'
+2. For recent tickets: query support_tickets WHERE customer_id = <id> ORDER BY created_at DESC LIMIT 5
+3. For ticket details + comments: query support_tickets JOIN, then ticket_comments WHERE ticket_id = '<id>'
+4. For notifications: query notifications_log WHERE recipient ILIKE '%{customer_email}%' ORDER BY sent_at DESC LIMIT 10
+5. To create a ticket: call create_support_ticket tool
+6. To create Jira ticket: call create_jira_ticket tool
+7. Log CRM notes via update_crm_note tool
+
+AVAILABLE TOOLS: query (MCP), update_crm_note, create_support_ticket, create_jira_ticket, update_jira_ticket
 
 ASSIGNMENT RULES:
-- Billing → Finance Team (FIN)
-- Technical → Engineering Team (ENG)
-- Account → Account Team (ACCT)
-- Feature requests → Product Team (PROD)
-- P1/P2: 4-hour SLA | P3/P4: 24-hour SLA
-- You now have access to 'query' tool via MCP for direct PostgreSQL table reads/joins. Ensure schemas are verified."""
+- Billing → Finance Team (FIN) | Technical → Engineering Team (ENG)
+- Account → Account Team (ACCT) | Feature requests → Product Team (PROD)
+- P1/P2: 4-hour SLA | P3/P4: 24-hour SLA"""
+
 
 
 # --- Agent ---
@@ -126,16 +133,11 @@ agent = Agent(
     model=get_model(),
     model_settings=ModelSettings(temperature=0.2, max_tokens=1000),
     tools=[
-        search_crm,
         update_crm_note,
-        query_tickets,
-        get_ticket_details,
         create_support_ticket,
-        get_notifications,
         create_jira_ticket,
         update_jira_ticket,
     ],
-    mcp_servers=[get_mcp_postgres()],
     input_guardrails=[detect_jailbreak],
     handoff_description="Operations: CRM updates, Jira tickets, support tickets, cross-system sync, task tracking",
 )

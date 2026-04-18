@@ -1,7 +1,7 @@
 """
 Account Security Agent — Actuator AI
 
-All lookups, unlocks, and security logs hit PostgreSQL directly.
+All lookups via MCP PostgreSQL. Unlocks and security writes via function tools.
 """
 
 import sys
@@ -14,9 +14,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 from agents import Agent, Runner, ModelSettings, function_tool
 
 from shared.models.ollama_provider import get_model
-from shared.mcp_config import get_mcp_postgres
+from shared.mcp_config import create_mcp_postgres
 from shared.guardrails.safety import detect_jailbreak, detect_pii, detect_sql_injection
-from shared.tools.db_tools import lookup_customer_by_email, get_security_log, unlock_account
+from shared.tools.db_tools import unlock_account
 
 
 # --- Agent-specific tools (write operations) ---
@@ -32,7 +32,6 @@ def initiate_2fa_setup(email: str, method: str) -> str:
     valid_methods = ["totp", "sms", "email"]
     if method.lower() not in valid_methods:
         return f"Invalid method '{method}'. Supported: {', '.join(valid_methods)}"
-    # Production: call auth service API
     return (
         f"2FA setup initiated for {email} via {method.upper()}.\n"
         f"Setup link sent to registered email.\n"
@@ -83,7 +82,6 @@ def update_profile(email: str, field: str, new_value: str) -> str:
     if field.lower() not in field_map:
         return f"Cannot update '{field}'. Updatable: {', '.join(field_map.keys())}"
 
-    import psycopg2
     try:
         from shared.tools.db_tools import _execute
         result = _execute(
@@ -102,26 +100,29 @@ def build_instructions(ctx, agent):
     return f"""You are the Account Security Agent for Actuator AI. Current time: {now}
 CURRENT USER: {customer_email}
 
+DATABASE ACCESS: You have a 'query' MCP tool for direct PostgreSQL access.
+ALWAYS call the 'query' MCP tool first to fetch real data before responding.
+NEVER guess or hallucinate account data — query the database.
+
 DATABASE SCHEMA:
-- 'customers' (id, company_name, industry, status, health_score, mrr)
-- 'customer_contacts' (id, customer_id, name, email, phone, role, account_locked, login_failures, two_factor_enabled)
-- 'security_events' (id, contact_email, event_type, ip_address, location, details)
+- 'customers' (id, company_name, industry, company_size, region, status, health_score, mrr, created_at)
+- 'customer_contacts' (id, customer_id, name, email, phone, role, is_primary BOOL, last_login TIMESTAMP, login_failures INT, account_locked BOOL, two_factor_enabled BOOL, two_factor_method VARCHAR)
+- 'security_events' (id, contact_email, event_type, ip_address, location, details JSONB, created_at)
 
-CAPABILITIES:
-- Account lookup from database (email, status, 2FA, login history)
-- Account unlock (resets failed attempts in DB + logs security event)
-- Security event log retrieval from database
-- 2FA setup and reset
-- Password reset initiation
+STEP-BY-STEP PROTOCOL:
+1. Call 'query' MCP tool with this SQL to look up the customer:
+   SELECT c.company_name, c.status, cc.name, cc.email, cc.account_locked, cc.login_failures, cc.two_factor_enabled, cc.two_factor_method, cc.last_login FROM customers c JOIN customer_contacts cc ON cc.customer_id = c.id WHERE cc.email ILIKE '{customer_email}'
+2. For locked accounts: also query security_events, then call unlock_account tool
+3. For 2FA requests: call initiate_2fa_setup or reset_2fa
+4. For password: call initiate_password_reset
+5. Report exact DB results to the customer
 
-PROTOCOL:
-1. Always lookup_customer_by_email before any action
-2. For locked accounts: review security log, then unlock with reason
-3. For security concerns: pull security log and analyze patterns
+AVAILABLE TOOLS: query (MCP), unlock_account, initiate_2fa_setup, reset_2fa, initiate_password_reset, update_profile
 
 RULES:
 - NEVER reveal full account details or tokens
-- Keep responses clean, minimal, and secure."""
+- Always confirm account exists in DB before taking action
+- Report lock status, 2FA method, and last login from actual DB data"""
 
 
 # --- Agent ---
@@ -131,17 +132,14 @@ agent = Agent(
     model=get_model(),
     model_settings=ModelSettings(temperature=0.2, max_tokens=1000),
     tools=[
-        lookup_customer_by_email,
         unlock_account,
-        get_security_log,
         initiate_2fa_setup,
         reset_2fa,
         initiate_password_reset,
         update_profile,
     ],
-    mcp_servers=[get_mcp_postgres()],
     input_guardrails=[detect_jailbreak, detect_pii, detect_sql_injection],
-    handoff_description="Account issues: login problems, 2FA, password reset, profile updates, security alerts, account lockout",
+    handoff_description="Account and security issues: login problems, 2FA, password reset, profile updates, security alerts, account lockout",
 )
 
 

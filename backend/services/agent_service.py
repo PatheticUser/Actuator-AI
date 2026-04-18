@@ -3,10 +3,12 @@
 Bridges FastAPI ↔ OpenAI Agents SDK. Handles:
   - Loading the supervisor + all specialist agents
   - Running conversations through the agent pipeline
+  - Creating fresh MCP connections per request
   - Persisting messages to database
 """
 
 import asyncio
+import traceback
 from datetime import datetime, timezone
 from sqlmodel import Session, select
 
@@ -21,7 +23,19 @@ from actuator_agents.operations_sync.agent import agent as operations_sync
 from actuator_agents.linguistic.agent import agent as linguistic_agent
 from actuator_agents.audit.agent import agent as audit_agent
 
+from shared.mcp_config import create_mcp_postgres
 from backend.models.conversation import Conversation, Message
+
+
+# All agents that receive MCP DB access
+_ALL_AGENTS = [
+    supervisor, technical_specialist, account_security,
+    billing_finance, success_retention, operations_sync,
+    linguistic_agent, audit_agent,
+]
+
+# Lock prevents concurrent requests from clashing on shared agent objects
+_run_lock = asyncio.Lock()
 
 
 # Registry of all agents for info endpoint
@@ -71,22 +85,15 @@ async def run_chat(
 ) -> dict:
     """Run a message through the supervisor agent pipeline.
 
+    Creates a FRESH MCP server per request to avoid lifecycle conflicts.
     Returns dict with: response, agent_name, needs_approval, approval_items
     """
-    # Save user message
-    user_msg = Message(
-        conversation_id=conversation_id,
-        role="user",
-        content=message,
-    )
-    db.add(user_msg)
-    db.flush()
-
     try:
-        # Rebuild conversation history from DB for context continuity
+        # Rebuild conversation history from DB — EXCLUDE guardrail-blocked messages
         prior_messages = db.exec(
             select(Message)
             .where(Message.conversation_id == conversation_id)
+            .where(Message.agent_name != "Guardrail")  # skip blocked exchanges
             .order_by(Message.created_at)
         ).all()
 
@@ -95,19 +102,34 @@ async def run_chat(
             role = msg.role if msg.role in ("user", "assistant") else "user"
             input_list.append({"role": role, "content": msg.content})
 
-        # Ensure MCP servers are connected
-        for server in (supervisor.mcp_servers or []):
-            try:
-                await server.connect()
-            except Exception:
-                pass # Already connected or failing
+        # Add current message to the input
+        input_list.append({"role": "user", "content": message})
 
-        # Run through supervisor with full conversation history
-        result = await Runner.run(
-            supervisor, 
-            input_list, 
-            context={"customer_email": customer_email}
-        )
+        # Create fresh MCP instance and run with lock
+        async with _run_lock:
+            mcp = create_mcp_postgres()
+            await mcp.connect()
+            print(f"✅ MCP connected for request")
+
+            # Assign MCP to all agents
+            for ag in _ALL_AGENTS:
+                ag.mcp_servers = [mcp]
+
+            try:
+                result = await Runner.run(
+                    supervisor,
+                    input_list,
+                    context={"customer_email": customer_email},
+                )
+            finally:
+                # Always cleanup: remove MCP refs + disconnect
+                for ag in _ALL_AGENTS:
+                    ag.mcp_servers = []
+                try:
+                    await mcp.cleanup()
+                    print(f"✅ MCP cleaned up")
+                except Exception as cleanup_err:
+                    print(f"⚠ MCP cleanup warning: {cleanup_err}")
 
         response_text = result.final_output or "No response generated."
         agent_name = result.last_agent.name if result.last_agent else "Supervisor Router"
@@ -119,7 +141,14 @@ async def run_chat(
             for interruption in result.interruptions:
                 approval_items.append(interruption.raw_item.name)
 
-        # Save assistant message
+        # Save BOTH messages only AFTER successful processing
+        user_msg = Message(
+            conversation_id=conversation_id,
+            role="user",
+            content=message,
+        )
+        db.add(user_msg)
+
         assistant_msg = Message(
             conversation_id=conversation_id,
             role="assistant",
@@ -143,7 +172,8 @@ async def run_chat(
         }
 
     except InputGuardrailTripwireTriggered as e:
-        blocked_msg = f"Message blocked by safety guardrail: {e}"
+        # DON'T save the blocked user message to DB — prevents poison history
+        blocked_msg = f"⚠️ Message blocked by safety guardrail."
         assistant_msg = Message(
             conversation_id=conversation_id,
             role="assistant",
@@ -161,7 +191,11 @@ async def run_chat(
         }
 
     except Exception as e:
-        error_msg = f"Agent error: {str(e)}"
+        error_detail = str(e)
+        print(f"⚠ Agent error: {error_detail}")
+        traceback.print_exc()
+
+        error_msg = f"Agent error: {error_detail}"
         assistant_msg = Message(
             conversation_id=conversation_id,
             role="assistant",

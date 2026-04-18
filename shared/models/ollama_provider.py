@@ -1,10 +1,16 @@
 """
-shared/models/ollama.py — Ollama Local Model Provider
+shared/models/ollama.py — Ollama Local/Cloud Model Provider
 
 Usage:
     from shared.models.ollama_provider import get_model
     agent = Agent(name="My Agent", instructions="...", model=get_model())
-    agent = Agent(name="My Agent", instructions="...", model=get_model("llama3.1:8b"))
+
+Best cloud models for tool-calling + handoffs (no local GPU needed):
+    1. deepseek-v3.1:671b-cloud  ← RECOMMENDED (strongest tool calls, agentic chains)
+    2. gpt-oss:120b-cloud        ← GPT architecture, native tool schema support
+    3. qwen3-coder:480b-cloud    ← Great for structured output & code reasoning
+    4. nemotron-3-super:cloud    ← NVIDIA, strong instruction following
+    5. qwen3.5:cloud             ← Fast, lighter option for simpler tasks
 """
 
 import os
@@ -36,7 +42,7 @@ def get_model(model_name: str | None = None) -> OpenAIChatCompletionsModel:
                     Defaults to OLLAMA_MODEL env var or 'qwen2.5:7b'.
 
     Returns:
-        Model ready to use with Agent(model=...).
+        Model ready to use with Agent(model=...). 
 
     Requires:
         ollama pull <model_name>

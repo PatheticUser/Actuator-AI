@@ -2,7 +2,7 @@
 Technical Specialist Agent — Actuator AI
 
 Combines: Tech Support + Knowledge Base RAG
-Tools query PostgreSQL for KB articles, system status, and tickets.
+Uses MCP PostgreSQL for all database queries (KB articles, system status, tickets).
 """
 
 import sys
@@ -15,9 +15,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 from agents import Agent, Runner, ModelSettings, function_tool
 
 from shared.models.ollama_provider import get_model
-from shared.mcp_config import get_mcp_postgres
+from shared.mcp_config import create_mcp_postgres
 from shared.guardrails.safety import detect_jailbreak, detect_sql_injection
-from shared.tools.db_tools import search_knowledge_base, query_tickets, create_support_ticket, get_ticket_details
+from shared.tools.db_tools import create_support_ticket
 
 
 # --- Agent-specific tools (not in DB) ---
@@ -57,7 +57,6 @@ def check_system_status(component: str) -> str:
     Args:
         component: Component name, e.g. 'api-gateway', 'user-service', 'database-primary'.
     """
-    # Production: query Prometheus/Grafana API
     statuses = {
         "api-gateway": "HEALTHY | Latency: 42ms | Error rate: 0.1% | Uptime: 99.97%",
         "auth-service": "HEALTHY | Latency: 28ms | Error rate: 0.0% | Uptime: 99.99%",
@@ -81,25 +80,33 @@ def build_instructions(ctx, agent):
     return f"""You are the Technical Specialist for Actuator AI. Current time: {now}
 CURRENT USER: {customer_email}
 
+DATABASE ACCESS: You have a 'query' MCP tool for direct PostgreSQL access.
+ALWAYS search the knowledge base via MCP before responding to technical issues.
+NEVER invent solutions — base all answers on DB knowledge articles or tool outputs.
+
 DATABASE SCHEMA:
-- 'knowledge_articles' (id, title, category, content, tags)
-- 'support_tickets' (id, customer_id, contact_email, category, priority, subject, status)
-- 'api_usage' (id, customer_id, month, api_calls, storage_used_gb)
+- 'knowledge_articles' (id, title, category, content, tags TEXT[], views INT, helpful_votes INT, is_published BOOL)
+- 'support_tickets' (id, customer_id, contact_email, category, priority, subject, description, status, assigned_to, sla_deadline, first_response_at, resolved_at, satisfaction, created_at)
+- 'ticket_comments' (id, ticket_id, author, author_type, content, is_internal BOOL, created_at)
+- 'api_usage' (id, customer_id, month VARCHAR, api_calls INT, storage_used_gb NUMERIC, agent_sessions INT, webhook_events INT, overage_amount NUMERIC)
+- 'customers' (id, company_name, industry, status, health_score, mrr)
+- 'customer_contacts' (id, customer_id, name, email, phone, role)
 
-CAPABILITIES:
-- Search knowledge base (PostgreSQL) for documented solutions
-- Diagnose API errors with specific error codes
-- Check real-time infrastructure/system status
-- Query and create support tickets
+STEP-BY-STEP PROTOCOL:
+1. Search knowledge base via MCP:
+   SELECT title, content, tags FROM knowledge_articles WHERE is_published = true AND (title ILIKE '%<keyword>%' OR content ILIKE '%<keyword>%') ORDER BY helpful_votes DESC LIMIT 3
+2. Check system status using check_system_status tool for the affected service
+3. Diagnose error using diagnose_service tool with service name and error code
+4. If unresolved: call create_support_ticket tool with full context
+5. Share exact KB article content + diagnostic output in your response
 
-PROTOCOL:
-1. Search knowledge base first for documented solutions
-2. If infrastructure-related, check system status
-3. If unresolved, create a support ticket with full context
+AVAILABLE TOOLS: query (MCP), diagnose_service, check_system_status, create_support_ticket
 
 RULES:
+- Always search KB first — article content IS the answer
 - Never guess — use tools for verified information
-- Keep responses technically clean and minimal."""
+- For 5xx errors: always check system status
+- Keep responses technically precise"""
 
 
 # --- Agent ---
@@ -109,14 +116,10 @@ agent = Agent(
     model=get_model(),
     model_settings=ModelSettings(temperature=0.2, max_tokens=1200),
     tools=[
-        search_knowledge_base,
         diagnose_service,
         check_system_status,
-        query_tickets,
-        get_ticket_details,
         create_support_ticket,
     ],
-    mcp_servers=[get_mcp_postgres()],
     input_guardrails=[detect_jailbreak, detect_sql_injection],
     handoff_description="Technical issues: API errors, SDK problems, infrastructure, integrations, debugging",
 )

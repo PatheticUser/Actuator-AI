@@ -1,7 +1,7 @@
 """
 Billing Finance Agent — Actuator AI
 
-All billing lookups, invoices, usage from PostgreSQL.
+All billing lookups via MCP PostgreSQL.
 Refunds still need HITL approval.
 """
 
@@ -15,9 +15,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 from agents import Agent, Runner, ModelSettings, function_tool
 
 from shared.models.ollama_provider import get_model
-from shared.mcp_config import get_mcp_postgres
+from shared.mcp_config import create_mcp_postgres
 from shared.guardrails.safety import detect_jailbreak, detect_pii
-from shared.tools.db_tools import get_billing_info, get_invoice, get_usage_breakdown, list_products
 
 
 # --- Agent-specific tools ---
@@ -60,14 +59,12 @@ def process_refund(email: str, invoice_id: str, amount: float, reason: str) -> s
     from shared.tools.db_tools import _query, _execute
     import uuid
 
-    # Verify payment exists
     payments = _query(
         "SELECT id FROM payments WHERE invoice_id = %s LIMIT 1",
         (invoice_id.upper(),),
     )
     payment_id = payments[0]["id"] if payments and "error" not in payments[0] else None
 
-    # Get customer_id
     cust = _query("SELECT customer_id FROM customer_contacts WHERE email ILIKE %s LIMIT 1", (email,))
     cust_id = cust[0]["customer_id"] if cust and "error" not in cust[0] else None
 
@@ -113,31 +110,41 @@ def apply_credit(email: str, amount: float, reason: str) -> str:
 # --- Dynamic Instructions ---
 def build_instructions(ctx, agent):
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    customer_email = ctx.context.get("customer_email", "Unknown")
     return f"""You are the Billing Finance Agent for Actuator AI. Current time: {now}
+CURRENT USER: {customer_email}
 
-CAPABILITIES:
-- Billing info lookup from database (subscription, payment method, invoices)
-- Invoice retrieval with line items and payment history
-- Usage breakdown from database (API calls, storage, sessions)
-- Plan catalog from database
-- Refund processing (writes to DB, requires approval)
-- Account credits
+DATABASE ACCESS: You have a 'query' MCP tool for direct PostgreSQL access.
+ALWAYS use the 'query' MCP tool to fetch real billing data before responding.
+NEVER invent invoice amounts, dates, or plan information.
 
-PROTOCOL:
-1. Always get_billing_info before discussing charges.
-2. For disputes: pull specific invoice using get_invoice and usage breakdown using get_usage_breakdown.
-3. For refunds: confirm amount, process using process_refund (requires approval).
-4. For plan queries: use list_products.
-5. For plan changes: use change_plan.
+DATABASE SCHEMA:
+- 'customers' (id, company_name, industry, status, health_score, mrr)
+- 'customer_contacts' (id, customer_id, name, email, phone, role)
+- 'subscriptions' (id, customer_id, product_id, status, billing_cycle, current_period_end, auto_renew)
+- 'products' (id, name, slug, price_monthly, price_yearly, api_calls_limit, storage_gb, support_tier, is_active)
+- 'invoices' (id, customer_id, amount, tax, total, currency, status, due_date, paid_at, payment_method, created_at)
+- 'invoice_line_items' (id, invoice_id, description, quantity, unit_price, amount)
+- 'payments' (id, invoice_id, method, status, processed_at)
+- 'refunds' (id, payment_id, customer_id, amount, reason, status)
+- 'api_usage' (id, customer_id, month, api_calls, storage_used_gb, agent_sessions, webhook_events, overage_amount)
 
-TOOL RULES:
-- Only use the tools provided: get_billing_info, get_invoice, get_usage_breakdown, list_products, change_plan, process_refund, apply_credit, and query (MCP DB tool).
-- 'query' is an MCP provided tool allowing direct SELECT statements across connected schemas. Useful for raw aggregation.
-- Never hallucinate tool names like 'check_refund_status'.
-- Refunds ALWAYS require manager approval.
-- Credits up to PKR 5,000 can be applied directly.
-- Never share full payment card numbers.
-- You now have access to 'query' tool via MCP for direct PostgreSQL table reads/joins. Ensure schemas are verified."""
+STEP-BY-STEP PROTOCOL:
+1. For billing overview: query subscriptions+products+customer_contacts JOIN
+2. For specific invoice: query invoices WHERE id = 'INV-XXXX', then query invoice_line_items
+3. For refund request: confirm invoice exists in DB, then call process_refund tool (REQUIRES APPROVAL)
+4. For plan query: query products WHERE is_active = true ORDER BY price_monthly
+5. For plan change: call change_plan tool
+6. For credits up to PKR 5000: call apply_credit tool directly
+
+AVAILABLE TOOLS: query (MCP), change_plan, process_refund (needs approval), apply_credit
+
+RULES:
+- NEVER use tool names not listed above (no check_refund_status, no get_billing_info)
+- Refunds ALWAYS require manager approval via process_refund tool
+- Credits up to PKR 5,000 can be applied directly
+- Never share full payment card numbers
+- Always quote exact DB values for amounts and dates"""
 
 
 # --- Agent ---
@@ -147,18 +154,13 @@ agent = Agent(
     model=get_model(),
     model_settings=ModelSettings(temperature=0.2, max_tokens=1000),
     tools=[
-        get_billing_info,
-        get_invoice,
-        get_usage_breakdown,
-        list_products,
         change_plan,
         process_refund,
         apply_credit,
     ],
-    mcp_servers=[get_mcp_postgres()],
     input_guardrails=[detect_jailbreak, detect_pii],
-    handoff_description="Billing: invoices, payments, refunds, plan changes, usage, credits, billing disputes",
-    )
+    handoff_description="Billing and finance: invoices, payments, refunds, plan changes, usage, credits, billing disputes",
+)
 
 
 async def main():

@@ -1,0 +1,147 @@
+%-----------------------------------------------------------------------------------------------------------------------------------------------%
+% Muhammad Rameez - Resume
+%-----------------------------------------------------------------------------------------------------------------------------------------------%
+
+\documentclass[a4paper,12pt]{article}
+
+%----------------------------------------------------------------------------------------
+%	PACKAGES
+%----------------------------------------------------------------------------------------
+\usepackage{url}
+\usepackage{parskip}
+\usepackage{xcolor}
+\usepackage[left=0.6in, right=0.6in, top=0.5in, bottom=0.5in]{geometry}
+\usepackage{graphicx}
+\usepackage{tabularx}
+\usepackage{enumitem}
+\usepackage{titlesec}
+\usepackage{multicol}
+\usepackage{multirow}
+\usepackage[style=authoryear,sorting=ynt,maxbibnames=2]{biblatex}
+\usepackage[unicode, draft=false]{hyperref}
+\usepackage{fontawesome5}
+\usepackage{etoolbox}
+\usepackage{charter} % Modern, readable font
+
+%----------------------------------------------------------------------------------------
+%	HYPERLINK COLORS
+%----------------------------------------------------------------------------------------
+\definecolor{linkcolour}{HTML}{113285} % Professional Navy
+\hypersetup{
+  colorlinks,
+  breaklinks,
+  urlcolor=linkcolour,
+  linkcolor=linkcolour
+}
+
+%----------------------------------------------------------------------------------------
+%	COLUMN TYPE
+%----------------------------------------------------------------------------------------
+\newcolumntype{C}{>{\centering\arraybackslash}X}
+
+%----------------------------------------------------------------------------------------
+%	SECTION STYLE
+%----------------------------------------------------------------------------------------
+\titleformat{\section}{\large\scshape\raggedright\color{linkcolour}}{}{0em}{}[\color{linkcolour}\titlerule]
+\titlespacing{\section}{0pt}{10pt}{6pt}
+
+%----------------------------------------------------------------------------------------
+%	JOB ENVIRONMENTS
+%----------------------------------------------------------------------------------------
+\newenvironment{joblong}[2]
+{
+  \begin{tabularx}{\linewidth}{@{}l X r@{}}
+  \textbf{#1} & \hfill & #2 \\
+  \end{tabularx}
+  \vspace{-8pt}
+  \begin{itemize}[nosep,leftmargin=1.5em,itemsep=2pt,label=--]
+}
+{
+  \end{itemize}
+}
+
+%----------------------------------------------------------------------------------------
+%	BEGIN DOCUMENT
+%----------------------------------------------------------------------------------------
+\begin{document}
+\pagestyle{empty}
+
+%----------------------------------------------------------------------------------------
+%	TITLE
+%----------------------------------------------------------------------------------------
+\begin{tabularx}{\linewidth}{@{}C@{}}
+\huge{Muhammad Rameez} \\[4pt]
+\small{
+\href{https://github.com/PatheticUser}{\raisebox{-0.05\height}\faGithub\ PatheticUser} \ $|$ \ 
+\href{https://linkedin.com/in/muhammad-rameez-600619249}{\raisebox{-0.05\height}\faLinkedin\ Muhammad Rameez} \ $|$ \ 
+\href{mailto:rameezalipacific@gmail.com}{\raisebox{-0.05\height}\faEnvelope \ rameezalipacific@gmail.com} \ $|$ \ 
+\href{tel:+923006547090}{\raisebox{-0.05\height}\faMobile \ +92 300 6547090}
+}
+\end{tabularx}
+
+\vspace{-4pt}
+
+%----------------------------------------------------------------------------------------
+% SUMMARY
+%----------------------------------------------------------------------------------------
+\section{Summary}
+ML/AI Engineer specializing in LLM systems, agentic workflows, and RAG pipelines — with internship experience in model fine-tuning, experiment tracking, and production deployment.
+
+%----------------------------------------------------------------------------------------
+% EXPERIENCE
+%----------------------------------------------------------------------------------------
+\section{Experience}
+
+\begin{joblong}{Junior Software Engineer Intern — Maqminds}{June 2025 -- August 2025}
+\item Improved performance of the \textbf{Nurture Analytics application by 23\%} through \textbf{query optimization} and performance tuning
+\item Fixed \textbf{bugs}, participated in \textbf{code reviews}, and debugged new feature implementations
+\end{joblong}
+
+\vspace{4pt}
+
+\begin{joblong}{AI Engineer Intern — Arch Technologies}{March 2025 -- May 2025}
+\item Fine-tuned \textbf{LLaMA-3.2B} using \textbf{LoRA/QLoRA} on domain-specific datasets, improving \textbf{reasoning quality and task performance by $\sim$15\%}
+\item Built a \textbf{Brain Tumor Detection pipeline} combining \textbf{YOLOv11} for object detection and \textbf{SAM2} for instance segmentation on MRI scans, achieving precise tumor localization
+\item Developed \textbf{Ethereum price forecasting models} using \textbf{ARIMA, SARIMA, and SARIMAX} with \textbf{ADF stationarity testing}, automated \textbf{hyperparameter optimization via auto\_arima}, and full preprocessing pipeline
+\item Tracked all experiments using \textbf{Weights \& Biases}; evaluated models with \textbf{F1-score, RMSE, and ROUGE-L}; deployed lightweight models locally via \textbf{Ollama}
+\end{joblong}
+
+%----------------------------------------------------------------------------------------
+% PROJECTS
+%----------------------------------------------------------------------------------------
+\section{Projects}
+
+\textbf{CodeCrafter — Terminal-Based AI Coding Agent} \\
+Built a local AI coding agent powered by \textbf{Ollama} cloud models that autonomously reads, writes, executes, and debugs code inside a \textbf{sandboxed workspace}. Implemented \textbf{automatic model fallback} across a chain of LLMs, \textbf{self-correcting execution} with dependency auto-install, and \textbf{persistent session memory} supporting \textbf{Python}, \textbf{C++}, and \textbf{JavaScript}.
+
+\vspace{4pt}
+
+\textbf{Actuator AI — Industrial Multi-Agent Support System} \\
+Engineered a production-grade multi-agent ecosystem for industrial automation using \textbf{OpenAI Agents SDK} and \textbf{Model Context Protocol (MCP)}. Architected a \textbf{Supervisor-Specialist} hierarchy with 8 autonomous agents managing 21+ \textbf{PostgreSQL} tables. Implemented \textbf{Human-in-the-loop (HITL)} workflows for high-stake actions and an \textbf{asynchronous MCP factory pattern} to resolve state contention, alongside robust \textbf{PII and SQL-injection guardrails}.
+
+\vspace{4pt}
+
+\textbf{Synapse AI — Research Agent (LangChain + LangGraph)} \\
+Built a production-ready multi-source Research Agent using \textbf{LangChain + LangGraph} and \textbf{Ollama-powered LLMs}, automating synthesis across \textbf{Wikipedia}, \textbf{arXiv}, and \textbf{YouTube} via \textbf{Tavily} search. Features a \textbf{FastAPI} backend and persistent session memory via \textbf{SQLite}.
+
+%----------------------------------------------------------------------------------------
+% TECHNICAL SKILLS
+%----------------------------------------------------------------------------------------
+\section{Technical Skills}
+\textbf{Frameworks \& Libraries}: Python, OpenAI SDK, LangChain, LangGraph, Ollama, Pytorch, TensorFlow, Keras, Scikit-Learn, Hugging Face, LlamaIndex, FastAPI, Flask, NumPy, Pandas, Matplotlib \\
+\textbf{Databases}: PostgreSQL, SQLite, ChromaDB \\
+\textbf{Tools \& Platforms}: Git, Docker, Google Colab, Kaggle, Jupyter, VS Code, Linux, Roboflow
+
+%----------------------------------------------------------------------------------------
+% EDUCATION & COURSES
+%----------------------------------------------------------------------------------------
+\section{Education \& Relevant Courses}
+\begin{tabularx}{\linewidth}{@{}l X r@{}}
+  \textbf{BSSE — Punjab Tianjin University of Technology} & & 3.36 / 4.00 \\
+  2023 -- 2027 & & \\
+\end{tabularx}
+
+\vspace{4pt}
+\textbf{Courses}: Object-Oriented Programming, Database Systems, Operating Systems, Machine Learning, Deep Learning, Computer Vision, Generative AI, Natural Language Processing, IoT \& Embedded Systems
+
+\end{document}

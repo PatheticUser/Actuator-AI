@@ -19,7 +19,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 from agents import Agent, Runner, ModelSettings, function_tool
 
 from shared.models.ollama_provider import get_model
-from shared.mcp_config import get_mcp_postgres
+from shared.mcp_config import create_mcp_postgres
 from shared.guardrails.safety import detect_jailbreak, detect_pii, detect_sql_injection
 
 # --- Import specialist agents ---
@@ -102,22 +102,25 @@ def build_instructions(ctx, agent):
 CURRENT USER: {customer_email}
 
 YOU ARE THE FRONT DOOR. Every customer message comes to you first.
-GREET USER BY NAME/EMAIL IF KNOWN. DO NOT be overly technical. 
 
-DATABASE SCHEMA (PostgreSQL):
-- 'customers' (id, company_name, industry, status, health_score, mrr)
-- 'customer_contacts' (id, customer_id, name, email, phone, role, account_locked, login_failures, two_factor_enabled)
-- 'support_tickets' (id, customer_id, contact_email, category, priority, subject, status)
-- 'api_usage' (id, customer_id, month, api_calls, storage_used_gb)
-
-PROTOCOL:
-1. Classify the request using classify_request tool
-2. Based on classification, hand off to the appropriate specialist
-3. If unclear, ask ONE clarifying question before routing
+PROTOCOL — FOLLOW EXACTLY:
+1. Call classify_request with the user's message
+2. Based on the returned category, IMMEDIATELY hand off to the correct specialist:
+   - technical → Technical Specialist
+   - account → Account Security Agent
+   - billing → Billing Finance Agent
+   - success → Success Retention Agent
+   - operations → Operations Sync Agent
+   - linguistic → Linguistic Agent
+   - audit → Audit Agent
+3. If classification is unclear, ask ONE clarifying question
+4. Do NOT query the database yourself — specialists do that
+5. Do NOT try to answer technical/billing/account questions
 
 RULES:
-- NEVER try to solve issues yourself — always route to specialists
-- Keep responses clean, minimal, and polite."""
+- NEVER solve issues yourself — ALWAYS route to a specialist
+- Include the customer email in context when handing off
+- Be brief and professional"""
 
 
 # --- Supervisor Agent ---
@@ -136,7 +139,6 @@ supervisor = Agent(
         linguistic_agent,
         audit_agent,
     ],
-    mcp_servers=[get_mcp_postgres()],
     input_guardrails=[detect_jailbreak, detect_pii, detect_sql_injection],
 )
 
@@ -144,35 +146,43 @@ supervisor = Agent(
 async def main():
     scenarios = [
         "Our API is returning 502 errors. Users can't access the platform!",
-        # "I can't log in. My account seems locked. Email: locked@example.com",
-        # "I was charged twice this month! I want a refund immediately.",
-        # "We're thinking about cancelling. The product isn't being used much.",
-        # "Create a Jira ticket for the payment gateway timeout issue.",
-        # "Analyze this message sentiment: 'This is the worst service ever!'",
-        # "I want to speak to a manager. This is unacceptable.",
     ]
 
-    for msg in scenarios:
-        print(f"\n{'='*70}")
-        print(f"Customer: {msg}")
-        print(f"{'='*70}")
+    # Create + connect MCP for standalone mode
+    mcp = create_mcp_postgres()
+    await mcp.connect()
+    all_agents = [supervisor, technical_specialist, account_security,
+                  billing_finance, success_retention, operations_sync,
+                  linguistic_agent, audit_agent]
+    for ag in all_agents:
+        ag.mcp_servers = [mcp]
 
-        result = await Runner.run(supervisor, msg)
+    try:
+        for msg in scenarios:
+            print(f"\n{'='*70}")
+            print(f"Customer: {msg}")
+            print(f"{'='*70}")
 
-        # Handle HITL approvals (e.g., refunds)
-        if result.interruptions:
-            print(f"\n⚠ APPROVAL NEEDED")
-            state = result.to_state()
-            for i in result.interruptions:
-                answer = input(f"  Approve '{i.raw_item.name}'? (y/n): ").strip().lower()
-                if answer == "y":
-                    state.approve(i)
-            result = await Runner.run(supervisor, state)
+            result = await Runner.run(supervisor, msg)
 
-        print(f"\n→ Handled by: {result.last_agent.name}")
-        print(f"\nResponse:\n{result.final_output}")
-        print("-" * 70)
+            if result.interruptions:
+                print(f"\n⚠ APPROVAL NEEDED")
+                state = result.to_state()
+                for i in result.interruptions:
+                    answer = input(f"  Approve '{i.raw_item.name}'? (y/n): ").strip().lower()
+                    if answer == "y":
+                        state.approve(i)
+                result = await Runner.run(supervisor, state)
+
+            print(f"\n→ Handled by: {result.last_agent.name}")
+            print(f"\nResponse:\n{result.final_output}")
+            print("-" * 70)
+    finally:
+        for ag in all_agents:
+            ag.mcp_servers = []
+        await mcp.cleanup()
 
 
 if __name__ == "__main__":
     asyncio.run(main())
+
