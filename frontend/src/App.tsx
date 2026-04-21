@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { marked } from 'marked'
-import { sendMessage, fetchAgents, type Agent, type Message, type ChatResponse } from './api'
+import { fetchAgents, type Agent, type Message, type ChatResponse, streamMessage } from './api'
+import { useChatStore, type ChatMessage } from './store'
+import { Plus, MessageSquare, Menu, Send, ChevronRight } from 'lucide-react'
 import './index.css'
 import './App.css'
 
@@ -37,10 +39,13 @@ const QUICK_PROMPTS = [
   { icon: '📊', text: "Show health score and feature adoption for sara@novabyte.io" },
 ]
 
-function TypingDots() {
+function TypingDots({ agentName }: { agentName?: string }) {
   return (
-    <div className="typing-dots">
-      <span /><span /><span />
+    <div className="typing-indicator-container">
+      {agentName && agentName !== 'System' && <div className="typing-agent-name">{agentName} is typing</div>}
+      <div className="typing-dots">
+        <span /><span /><span />
+      </div>
     </div>
   )
 }
@@ -70,8 +75,8 @@ function MessageBubble({ msg }: { msg: ChatMessage }) {
         <div className={`msg-bubble ${isUser ? 'user-bubble' : 'ai-bubble'}`}>
           {isUser ? (
             <span>{msg.content}</span>
-          ) : msg.isStreaming ? (
-            <TypingDots />
+          ) : msg.isStreaming && !msg.content ? (
+            <TypingDots agentName={msg.agent_name} />
           ) : (
             <div className="md" dangerouslySetInnerHTML={{ __html: htmlContent || '' }} />
           )}
@@ -93,11 +98,14 @@ function MessageBubble({ msg }: { msg: ChatMessage }) {
 }
 
 export default function App() {
-  const [messages, setMessages] = useState<ChatMessage[]>([])
+  const store = useChatStore()
+  const messages = store.messages
+  const conversationId = store.conversationId
+  const loading = store.loading
+  const activeAgent = store.activeAgent
+
   const [input, setInput] = useState('')
   const [email, setEmail] = useState('ahmed@techvista.pk')
-  const [conversationId, setConversationId] = useState<string | undefined>()
-  const [loading, setLoading] = useState(false)
   const [agents, setAgents] = useState<Agent[]>([])
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const chatEndRef = useRef<HTMLDivElement>(null)
@@ -111,48 +119,14 @@ export default function App() {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  const handleSend = useCallback(async (overrideText?: string) => {
+  const handleSend = useCallback((overrideText?: string) => {
     const text = (overrideText ?? input).trim()
     if (!text || loading) return
 
-    const userMsg: ChatMessage = { role: 'user', content: text }
-    const streamingMsg: ChatMessage = { role: 'assistant', content: '', agent_name: 'System', isStreaming: true }
-
-    setMessages(prev => [...prev, userMsg, streamingMsg])
     setInput('')
-    setLoading(true)
     if (textareaRef.current) textareaRef.current.style.height = 'auto'
 
-    try {
-      const data: ChatResponse = await sendMessage(text, email, conversationId)
-      if (data.conversation_id) setConversationId(data.conversation_id)
-
-      setMessages(prev => {
-        const next = [...prev]
-        next[next.length - 1] = {
-          role: 'assistant',
-          content: data.response,
-          agent_name: data.agent_name,
-          needs_approval: data.needs_approval,
-          approval_items: data.approval_items,
-          isStreaming: false,
-        }
-        return next
-      })
-    } catch {
-      setMessages(prev => {
-        const next = [...prev]
-        next[next.length - 1] = {
-          role: 'assistant',
-          content: '**Connection error.** Is the FastAPI server running on port 8000?',
-          agent_name: 'System',
-          isStreaming: false,
-        }
-        return next
-      })
-    } finally {
-      setLoading(false)
-    }
+    streamMessage(text, email, conversationId)
   }, [input, email, conversationId, loading])
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -169,8 +143,7 @@ export default function App() {
   }
 
   const newConversation = () => {
-    setMessages([])
-    setConversationId(undefined)
+    store.clear()
   }
 
   const isEmpty = messages.length === 0
@@ -191,9 +164,9 @@ export default function App() {
           </div>
           <button className="new-chat-btn" onClick={newConversation} title="New conversation">
             {sidebarOpen ? (
-              <><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> New Chat</>
+              <><Plus size={14} /> New Chat</>
             ) : (
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              <Plus size={14} />
             )}
           </button>
         </div>
@@ -232,9 +205,7 @@ export default function App() {
         <div className="topbar">
           <div className="topbar-left">
             <button className="toggle-btn" onClick={() => setSidebarOpen(v => !v)} title="Toggle sidebar">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
-              </svg>
+              <Menu size={16} />
             </button>
             <div className="conv-info">
               <span className="conv-title">{conversationId ? 'Active Conversation' : 'New Chat'}</span>
@@ -277,6 +248,13 @@ export default function App() {
               {messages.map((msg, i) => (
                 <MessageBubble key={i} msg={msg} />
               ))}
+              {loading && activeAgent !== 'System' && messages[messages.length-1]?.role !== 'assistant' && (
+                <div className="msg-row ai">
+                  <div className="msg-content">
+                     <div className="ai-bubble msg-bubble"><TypingDots agentName={activeAgent} /></div>
+                  </div>
+                </div>
+              )}
               <div ref={chatEndRef} />
             </div>
           )}
@@ -303,9 +281,7 @@ export default function App() {
               {loading ? (
                 <div className="send-spinner" />
               ) : (
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
-                </svg>
+                <Send size={16} />
               )}
             </button>
           </div>

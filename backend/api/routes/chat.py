@@ -1,48 +1,67 @@
 """backend/api/routes/chat.py — Chat API endpoints"""
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from sqlmodel import Session, select
+import json
 
 from backend.db.session import get_session
 from backend.models.conversation import Conversation, Message
 from backend.api.schemas import ChatRequest, ChatResponse, ConversationResponse, MessageResponse
-from backend.services.agent_service import run_chat
+from backend.services.agent_service import run_chat_stream
 
 router = APIRouter(prefix="/chat", tags=["Chat"])
 
 
-@router.post("/", response_model=ChatResponse)
-async def send_message(request: ChatRequest, db: Session = Depends(get_session)):
-    """Send message to Actuator AI. Routes through Supervisor to specialist agents."""
+@router.websocket("/ws")
+async def chat_websocket(websocket: WebSocket, db: Session = Depends(get_session)):
+    """WebSocket endpoint for streaming chat responses."""
+    await websocket.accept()
+    try:
+        # Receive the first configuration/start message
+        data = await websocket.receive_text()
+        req_data = json.loads(data)
+        
+        message = req_data.get("message", "")
+        conversation_id = req_data.get("conversation_id")
+        customer_email = req_data.get("customer_email")
 
-    # Create or get conversation
-    if request.conversation_id:
-        conversation = db.get(Conversation, request.conversation_id)
-        if not conversation:
-            raise HTTPException(status_code=404, detail=f"Conversation {request.conversation_id} not found.")
-        conv_id = conversation.id
-    else:
-        conversation = Conversation(customer_email=request.customer_email)
-        db.add(conversation)
-        db.commit()
-        db.refresh(conversation)
-        conv_id = conversation.id
+        if conversation_id:
+            conversation = db.get(Conversation, conversation_id)
+            if not conversation:
+                await websocket.send_text(json.dumps({"type": "error", "content": "Conversation not found."}))
+                await websocket.close()
+                return
+            conv_id = conversation.id
+        else:
+            conversation = Conversation(customer_email=customer_email)
+            db.add(conversation)
+            db.commit()
+            db.refresh(conversation)
+            conv_id = conversation.id
 
-    # Run through agent pipeline
-    result = await run_chat(
-        message=request.message,
-        conversation_id=conv_id,
-        db=db,
-        customer_email=request.customer_email,
-    )
+        # Send back conversation_id so frontend can store it
+        await websocket.send_text(json.dumps({
+            "type": "conv_id",
+            "conversation_id": conv_id
+        }))
 
-    return ChatResponse(
-        conversation_id=conv_id,
-        response=result["response"],
-        agent_name=result["agent_name"],
-        needs_approval=result["needs_approval"],
-        approval_items=result["approval_items"],
-    )
+        # stream from backend service
+        async for chunk in run_chat_stream(
+            message=message,
+            conversation_id=conv_id,
+            db=db,
+            customer_email=customer_email,
+        ):
+            await websocket.send_text(chunk)
+
+    except WebSocketDisconnect:
+        print("WebSocket client disconnected.")
+    except Exception as e:
+        print(f"WebSocket Error: {e}")
+        try:
+            await websocket.close()
+        except:
+            pass
 
 
 @router.get("/conversations", response_model=list[ConversationResponse])

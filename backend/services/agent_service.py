@@ -10,7 +10,9 @@ Bridges FastAPI ↔ OpenAI Agents SDK. Handles:
 import asyncio
 import traceback
 from datetime import datetime, timezone
+import json
 from sqlmodel import Session, select
+from openai.types.responses import ResponseTextDeltaEvent
 
 from agents import Runner, InputGuardrailTripwireTriggered
 
@@ -77,16 +79,16 @@ def list_agents() -> list[dict]:
     ]
 
 
-async def run_chat(
+async def run_chat_stream(
     message: str,
     conversation_id: str,
     db: Session,
     customer_email: str | None = None,
-) -> dict:
-    """Run a message through the supervisor agent pipeline.
+):
+    """Run a message through the supervisor agent pipeline and yield stream events.
 
     Creates a FRESH MCP server per request to avoid lifecycle conflicts.
-    Returns dict with: response, agent_name, needs_approval, approval_items
+    Yields JSON strings of streaming events.
     """
     try:
         # Rebuild conversation history from DB — EXCLUDE guardrail-blocked messages
@@ -116,11 +118,40 @@ async def run_chat(
                 ag.mcp_servers = [mcp]
 
             try:
-                result = await Runner.run(
+                result = Runner.run_streamed(
                     supervisor,
                     input_list,
                     context={"customer_email": customer_email},
                 )
+                
+                final_response = ""
+                last_agent_name = "Supervisor Router"
+                needs_approval = False
+                approval_items = []
+                
+                async for event in result.stream_events():
+                    if event.type == "raw_response_event" and isinstance(event.data, ResponseTextDeltaEvent):
+                        delta = event.data.delta
+                        final_response += delta
+                        yield json.dumps({
+                            "type": "content",
+                            "agent_name": last_agent_name,
+                            "content": delta
+                        })
+                    elif event.type == "agent_updated_stream_event":
+                        last_agent_name = event.new_agent.name
+                        yield json.dumps({
+                            "type": "agent_update",
+                            "agent_name": last_agent_name
+                        })
+                
+                needs_approval = bool(result.interruptions)
+                if needs_approval:
+                    for interruption in result.interruptions:
+                        approval_items.append(interruption.raw_item.name)
+                        
+                response_text = final_response or "No response generated."
+                agent_name = last_agent_name
             finally:
                 # Always cleanup: remove MCP refs + disconnect
                 for ag in _ALL_AGENTS:
@@ -131,16 +162,9 @@ async def run_chat(
                 except Exception as cleanup_err:
                     print(f"⚠ MCP cleanup warning: {cleanup_err}")
 
-        response_text = result.final_output or "No response generated."
-        agent_name = result.last_agent.name if result.last_agent else "Supervisor Router"
-
-        # Check for HITL approvals
-        needs_approval = bool(result.interruptions)
-        approval_items = []
-        if needs_approval:
-            for interruption in result.interruptions:
-                approval_items.append(interruption.raw_item.name)
-
+        # We must clear the MCP and save to DB
+        # This part happens AFTER the streaming completes.
+        
         # Save BOTH messages only AFTER successful processing
         user_msg = Message(
             conversation_id=conversation_id,
@@ -164,12 +188,13 @@ async def run_chat(
 
         db.commit()
 
-        return {
-            "response": response_text,
+        # Final JSON to close the stream with approval info
+        yield json.dumps({
+            "type": "done",
             "agent_name": agent_name,
             "needs_approval": needs_approval,
-            "approval_items": approval_items,
-        }
+            "approval_items": approval_items
+        })
 
     except InputGuardrailTripwireTriggered as e:
         # DON'T save the blocked user message to DB — prevents poison history
@@ -183,12 +208,13 @@ async def run_chat(
         db.add(assistant_msg)
         db.commit()
 
-        return {
-            "response": blocked_msg,
+        yield json.dumps({
+            "type": "error",
+            "content": blocked_msg,
             "agent_name": "Guardrail",
             "needs_approval": False,
-            "approval_items": [],
-        }
+            "approval_items": []
+        })
 
     except Exception as e:
         error_detail = str(e)
@@ -205,9 +231,10 @@ async def run_chat(
         db.add(assistant_msg)
         db.commit()
 
-        return {
-            "response": error_msg,
+        yield json.dumps({
+            "type": "error",
+            "content": error_msg,
             "agent_name": "System",
             "needs_approval": False,
-            "approval_items": [],
-        }
+            "approval_items": []
+        })

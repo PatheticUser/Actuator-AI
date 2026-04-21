@@ -7,17 +7,17 @@
 }
 
 :root {
-  --bg-0: #07070e;
-  --bg-1: #0d0d1a;
-  --bg-2: #12121f;
-  --bg-3: #1a1a2e;
-  --surface: rgba(255,255,255,0.03);
-  --surface-hover: rgba(255,255,255,0.06);
-  --border: rgba(255,255,255,0.07);
-  --border-glow: rgba(99,102,241,0.25);
-  --text-1: #e8e8f0;
-  --text-2: #9090aa;
-  --text-3: #55556a;
+  --bg-0: #020617;
+  --bg-1: rgba(15, 23, 42, 0.65);
+  --bg-2: rgba(30, 41, 59, 0.4);
+  --bg-3: rgba(51, 65, 85, 0.3);
+  --surface: rgba(255, 255, 255, 0.04);
+  --surface-hover: rgba(255, 255, 255, 0.08);
+  --border: rgba(255, 255, 255, 0.06);
+  --border-glow: rgba(99, 102, 241, 0.4);
+  --text-1: #f8fafc;
+  --text-2: #94a3b8;
+  --text-3: #64748b;
   --accent: #6366f1;
   --accent-2: #8b5cf6;
   --accent-soft: rgba(99,102,241,0.1);
@@ -38,8 +38,11 @@ html, body, #root {
 }
 
 body {
-  font-family: 'Inter', system-ui, sans-serif;
+  font-family: 'Outfit', 'Inter', system-ui, sans-serif;
   background: var(--bg-0);
+  background-image: radial-gradient(circle at top right, rgba(99,102,241,0.1), transparent 40%),
+                    radial-gradient(circle at bottom left, rgba(139,92,246,0.1), transparent 40%);
+  background-attachment: fixed;
   color: var(--text-1);
   font-size: 14px;
   line-height: 1.6;
