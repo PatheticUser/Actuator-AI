@@ -33,7 +33,8 @@ async def chat_websocket(websocket: WebSocket, db: Session = Depends(get_session
                 return
             conv_id = conversation.id
         else:
-            conversation = Conversation(customer_email=customer_email)
+            summary_text = message[:30] + '...' if len(message) > 30 else message
+            conversation = Conversation(customer_email=customer_email, summary=summary_text)
             db.add(conversation)
             db.commit()
             db.refresh(conversation)

@@ -32,6 +32,7 @@ class Customer(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     name: str = Field(index=True)
     email: str = Field(unique=True, index=True)
+    hashed_password: Optional[str] = None
     plan: str = Field(default="free")  # free, pro, enterprise
     status: str = Field(default="active")  # active, locked, suspended
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

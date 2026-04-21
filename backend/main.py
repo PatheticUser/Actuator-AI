@@ -16,9 +16,9 @@ from backend.db.session import engine
 from backend.models.agent import Agent
 from backend.models.conversation import Conversation, Message, Customer, SupportTicket
 
-# Import routers
 from backend.api.routes.chat import router as chat_router
 from backend.api.routes.agents import router as agents_router
+from backend.api.routes.auth import router as auth_router
 
 
 @asynccontextmanager
@@ -50,6 +50,7 @@ app.add_middleware(
 # Register routes
 app.include_router(chat_router, prefix=settings.API_V1_STR)
 app.include_router(agents_router, prefix=settings.API_V1_STR)
+app.include_router(auth_router, prefix=settings.API_V1_STR)
 
 
 from fastapi.staticfiles import StaticFiles

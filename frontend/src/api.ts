@@ -1,6 +1,6 @@
 import { useChatStore } from './store';
 
-const API_BASE = '/api/v1';
+export const API_BASE = '/api/v1';
 
 export interface Agent {
   key: string;
@@ -41,13 +41,14 @@ export const streamMessage = (
   // Add user message
   store.addMessage({ role: 'user', content: message });
   
-  // Add initial assistant streaming message
-  store.addMessage({ role: 'assistant', content: '', agent_name: 'Supervisor', isStreaming: true });
+  // Add initial assistant streaming message using current agent
+  store.addMessage({ role: 'assistant', content: '', agent_name: store.activeAgent === 'System' ? 'Supervisor Router' : store.activeAgent, isStreaming: true });
   
   const wsUrl = new URL(API_BASE + '/chat/ws', window.location.origin).toString().replace(/^http/, 'ws');
   const ws = new WebSocket(wsUrl);
 
   let tempBuffer = '';
+  let currentAgent = store.activeAgent === 'System' ? 'Supervisor Router' : store.activeAgent;
 
   ws.onopen = () => {
     ws.send(JSON.stringify({
@@ -65,12 +66,19 @@ export const streamMessage = (
     } 
     else if (data.type === 'content') {
       tempBuffer += data.content;
-      store.updateLastMessage(msg => ({ ...msg, content: tempBuffer, agent_name: data.agent_name }));
-      store.setActiveAgent(data.agent_name);
+      store.updateLastMessage(msg => ({ ...msg, content: tempBuffer, agent_name: currentAgent }));
+      store.setActiveAgent(currentAgent);
     }
     else if (data.type === 'agent_update') {
-      store.updateLastMessage(msg => ({ ...msg, agent_name: data.agent_name }));
-      store.setActiveAgent(data.agent_name);
+      if (data.agent_name !== currentAgent && data.agent_name !== 'Supervisor Router') {
+        // Handoff occurred! Seal the previous message.
+        store.updateLastMessage(msg => ({ ...msg, isStreaming: false }));
+        // Add a new message for the new agent.
+        tempBuffer = '';
+        currentAgent = data.agent_name;
+        store.addMessage({ role: 'assistant', content: '', agent_name: currentAgent, isStreaming: true });
+      }
+      store.setActiveAgent(currentAgent);
     }
     else if (data.type === 'done') {
       store.updateLastMessage(msg => ({
@@ -81,7 +89,7 @@ export const streamMessage = (
         agent_name: data.agent_name,
       }));
       store.setLoading(false);
-      store.setActiveAgent('System');
+      store.setActiveAgent(data.agent_name);
       ws.close();
     }
     else if (data.type === 'error') {
@@ -92,7 +100,6 @@ export const streamMessage = (
         agent_name: data.agent_name || 'System'
       }));
       store.setLoading(false);
-      store.setActiveAgent('System');
       ws.close();
     }
   };
@@ -105,7 +112,6 @@ export const streamMessage = (
       isStreaming: false
     }));
     store.setLoading(false);
-    store.setActiveAgent('System');
   };
 
   ws.onclose = () => {
@@ -113,7 +119,6 @@ export const streamMessage = (
       store.setLoading(false);
       store.updateLastMessage(msg => ({ ...msg, isStreaming: false }));
     }
-    store.setActiveAgent('System');
   };
 };
 

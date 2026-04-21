@@ -8,10 +8,13 @@ export interface ChatMessage extends Message {
 }
 
 interface ChatStore {
+  user: { email: string; name: string; token: string } | null
   messages: ChatMessage[]
   conversationId?: string
   loading: boolean
   activeAgent: string
+  setUser: (user: { email: string; name: string; token: string } | null) => void
+  logout: () => void
   setMessages: (messages: ChatMessage[]) => void
   addMessage: (message: ChatMessage) => void
   updateLastMessage: (updater: (msg: ChatMessage) => ChatMessage) => void
@@ -22,11 +25,14 @@ interface ChatStore {
 }
 
 export const useChatStore = create<ChatStore>((set) => ({
+  user: null,
   messages: [],
   conversationId: undefined,
   loading: false,
   activeAgent: 'System',
   
+  setUser: (user) => set({ user }),
+  logout: () => set({ user: null, messages: [], conversationId: undefined, activeAgent: 'System' }),
   setMessages: (messages) => set({ messages }),
   addMessage: (message) => set((state) => ({ messages: [...state.messages, message] })),
   updateLastMessage: (updater) => set((state) => {

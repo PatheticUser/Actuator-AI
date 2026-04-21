@@ -1,35 +1,29 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { marked } from 'marked'
-import { fetchAgents, type Agent, type Message, type ChatResponse, streamMessage } from './api'
+import { fetchAgents, type Agent, streamMessage, API_BASE } from './api'
 import { useChatStore, type ChatMessage } from './store'
-import { Plus, MessageSquare, Menu, Send, ChevronRight } from 'lucide-react'
+import { Plus, Menu, Send, Bot, Shield, CreditCard, TrendingUp, Settings, Globe, FileCheck, AlertCircle } from 'lucide-react'
 import './index.css'
 import './App.css'
 
 // Configure marked for safe rendering
 marked.setOptions({ breaks: true, gfm: true })
 
-const AGENT_CONFIG: Record<string, { color: string; emoji: string; short: string }> = {
-  'Supervisor Router':      { color: '#6366f1', emoji: '🎯', short: 'Supervisor' },
-  'Technical Specialist':   { color: '#06b6d4', emoji: '🔧', short: 'Technical' },
-  'Account Security Agent': { color: '#f59e0b', emoji: '🔒', short: 'Security' },
-  'Billing Finance Agent':  { color: '#22c55e', emoji: '💳', short: 'Billing' },
-  'Success Retention Agent':{ color: '#8b5cf6', emoji: '📈', short: 'Success' },
-  'Operations Sync Agent':  { color: '#ec4899', emoji: '⚙️', short: 'Ops' },
-  'Linguistic Agent':       { color: '#0ea5e9', emoji: '🌐', short: 'Linguistic' },
-  'Audit Agent':            { color: '#ef4444', emoji: '🔍', short: 'Audit' },
-  'Guardrail':              { color: '#ef4444', emoji: '🛡️', short: 'Guardrail' },
-  'System':                 { color: '#6b7280', emoji: '⚡', short: 'System' },
+const AGENT_CONFIG: Record<string, { color: string; icon: any; short: string }> = {
+  'Supervisor Router':      { color: '#6366f1', icon: Bot, short: 'Supervisor' },
+  'Technical Specialist':   { color: '#06b6d4', icon: Settings, short: 'Technical' },
+  'Account Security Agent': { color: '#f59e0b', icon: Shield, short: 'Security' },
+  'Billing Finance Agent':  { color: '#22c55e', icon: CreditCard, short: 'Billing' },
+  'Success Retention Agent':{ color: '#8b5cf6', icon: TrendingUp, short: 'Success' },
+  'Operations Sync Agent':  { color: '#ec4899', icon: Settings, short: 'Ops' },
+  'Linguistic Agent':       { color: '#0ea5e9', icon: Globe, short: 'Linguistic' },
+  'Audit Agent':            { color: '#ef4444', icon: FileCheck, short: 'Audit' },
+  'Guardrail':              { color: '#ef4444', icon: AlertCircle, short: 'Guardrail' },
+  'System':                 { color: '#6b7280', icon: AlertCircle, short: 'System' },
 }
 
 function getAgentConfig(name: string) {
-  return AGENT_CONFIG[name] || { color: '#6366f1', emoji: '⚡', short: name?.split(' ')[0] || 'AI' }
-}
-
-interface ChatMessage extends Message {
-  needs_approval?: boolean
-  approval_items?: string[]
-  isStreaming?: boolean
+  return AGENT_CONFIG[name] || { color: '#6366f1', icon: Bot, short: name?.split(' ')[0] || 'AI' }
 }
 
 const QUICK_PROMPTS = [
@@ -60,8 +54,8 @@ function MessageBubble({ msg }: { msg: ChatMessage }) {
   return (
     <div className={`msg-row ${isUser ? 'user' : 'ai'}`}>
       {!isUser && (
-        <div className="msg-avatar" style={{ background: `${cfg.color}18`, border: `1px solid ${cfg.color}30` }}>
-          <span className="avatar-emoji">{cfg.emoji}</span>
+        <div className="msg-avatar" style={{ background: `${cfg.color}18`, border: `1px solid ${cfg.color}30`, color: cfg.color }}>
+          <cfg.icon size={16} />
         </div>
       )}
       <div className="msg-content">
@@ -99,13 +93,68 @@ function MessageBubble({ msg }: { msg: ChatMessage }) {
 
 export default function App() {
   const store = useChatStore()
+  const user = store.user
+  
+  if (!user) {
+    return <AuthOverlay />
+  }
+
+  return <ChatApp />
+}
+
+function AuthOverlay() {
+  const store = useChatStore()
+  const [isLogin, setIsLogin] = useState(true)
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [name, setName] = useState('')
+  const [error, setError] = useState('')
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setError('')
+    try {
+      const endpoint = isLogin ? '/auth/login' : '/auth/signup'
+      const body = isLogin ? { email, password } : { email, password, name }
+      const res = await fetch(API_BASE + endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.detail || 'Auth failed')
+      store.setUser({ email: data.email, name: data.name, token: data.access_token })
+    } catch (err: any) {
+      setError(err.message)
+    }
+  }
+
+  return (
+    <div className="auth-container" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: 'var(--bg-0)' }}>
+      <form onSubmit={handleSubmit} style={{ background: 'var(--bg-1)', padding: '32px', borderRadius: '24px', border: '1px solid var(--border)', width: '360px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+        <h2 style={{ textAlign: 'center' }}>Actuator AI</h2>
+        <div style={{ display: 'flex', gap: '8px', background: 'var(--bg-2)', padding: '4px', borderRadius: '8px' }}>
+          <button type="button" onClick={() => setIsLogin(true)} style={{ flex: 1, padding: '8px', border: 'none', background: isLogin ? 'var(--accent)' : 'transparent', color: '#fff', borderRadius: '4px', cursor: 'pointer' }}>Login</button>
+          <button type="button" onClick={() => setIsLogin(false)} style={{ flex: 1, padding: '8px', border: 'none', background: !isLogin ? 'var(--accent)' : 'transparent', color: '#fff', borderRadius: '4px', cursor: 'pointer' }}>Sign Up</button>
+        </div>
+        {!isLogin && <input type="text" placeholder="Name" value={name} onChange={e => setName(e.target.value)} required className="email-input" style={{ width: '100%', border: '1px solid var(--border)', padding: '10px 14px', borderRadius: '8px' }} />}
+        <input type="email" placeholder="Email" value={email} onChange={e => setEmail(e.target.value)} required className="email-input" style={{ width: '100%', border: '1px solid var(--border)', padding: '10px 14px', borderRadius: '8px' }} />
+        <input type="password" placeholder="Password" value={password} onChange={e => setPassword(e.target.value)} required className="email-input" style={{ width: '100%', border: '1px solid var(--border)', padding: '10px 14px', borderRadius: '8px' }} />
+        {error && <div style={{ color: 'var(--red)', fontSize: '12px', textAlign: 'center' }}>{error}</div>}
+        <button type="submit" style={{ padding: '12px', background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 600 }}>{isLogin ? 'Log In' : 'Sign Up'}</button>
+      </form>
+    </div>
+  )
+}
+
+function ChatApp() {
+  const store = useChatStore()
   const messages = store.messages
   const conversationId = store.conversationId
   const loading = store.loading
   const activeAgent = store.activeAgent
 
   const [input, setInput] = useState('')
-  const [email, setEmail] = useState('ahmed@techvista.pk')
   const [agents, setAgents] = useState<Agent[]>([])
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const chatEndRef = useRef<HTMLDivElement>(null)
@@ -126,8 +175,8 @@ export default function App() {
     setInput('')
     if (textareaRef.current) textareaRef.current.style.height = 'auto'
 
-    streamMessage(text, email, conversationId)
-  }, [input, email, conversationId, loading])
+    streamMessage(text, store.user?.email || 'guest@example.com', conversationId)
+  }, [input, conversationId, loading, store.user])
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -175,7 +224,7 @@ export default function App() {
           <>
             <div className="sidebar-section-label">Active Agents</div>
             <div className="agent-list">
-              {(agents.length > 0 ? agents : Object.entries(AGENT_CONFIG).slice(0, 8).map(([, v], i) => ({
+              {(agents.length > 0 ? agents : Object.entries(AGENT_CONFIG).slice(0, 8).map(([, _v], i) => ({
                 key: String(i), name: Object.keys(AGENT_CONFIG)[i], description: '', tool_count: 0
               }))).map((a) => {
                 const cfg = getAgentConfig(a.name)
@@ -183,16 +232,15 @@ export default function App() {
                   <div className="agent-item" key={a.key}>
                     <div className="agent-dot" style={{ background: cfg.color }} />
                     <span className="agent-item-name">{a.name}</span>
-                    {a.tool_count > 0 && <span className="agent-tools-badge">{a.tool_count}t</span>}
                   </div>
                 )
               })}
             </div>
 
             <div className="sidebar-footer">
-              <div className="status-pill">
-                <div className="status-dot" />
-                <span>8 agents · MCP live</span>
+              <div className="status-pill" style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
+                <span>{store.user?.name || 'Guest'}</span>
+                <span style={{ cursor: 'pointer', color: 'var(--accent)' }} onClick={() => store.logout()}>Logout</span>
               </div>
             </div>
           </>
@@ -204,7 +252,7 @@ export default function App() {
         {/* Topbar */}
         <div className="topbar">
           <div className="topbar-left">
-            <button className="toggle-btn" onClick={() => setSidebarOpen(v => !v)} title="Toggle sidebar">
+            <button className="toggle-btn" onClick={() => setSidebarOpen(prev => !prev)} title="Toggle sidebar">
               <Menu size={16} />
             </button>
             <div className="conv-info">
@@ -213,16 +261,7 @@ export default function App() {
             </div>
           </div>
           <div className="email-field">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
-            </svg>
-            <input
-              type="text"
-              className="email-input"
-              value={email}
-              onChange={e => setEmail(e.target.value)}
-              placeholder="customer@company.com"
-            />
+            <span style={{ fontSize: '13px', fontWeight: 500 }}>{store.user?.email}</span>
           </div>
         </div>
 
