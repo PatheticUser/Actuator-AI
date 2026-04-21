@@ -250,6 +250,7 @@ DATABASE SCHEMA:
 - 'messages' (id, conversation_id, role, content, agent_name, created_at)
 
 STEP-BY-STEP PROTOCOL:
+WARNING: DO NOT WRITE YOUR OWN SQL QUERIES. YOU MUST COPY AND PASTE THESE EXACT SQL PATTERNS. NEVER INVENT TABLES OR COLUMNS!
 1. For QA report: call generate_qa_report tool (queries audit_logs internally)
 2. For hallucination check: call check_hallucination with agent response + tool outputs
 3. For policy compliance: call check_policy_compliance with response text + agent name

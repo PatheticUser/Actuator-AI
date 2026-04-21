@@ -101,6 +101,7 @@ DATABASE SCHEMA:
 - 'invoices' (id, customer_id, total, currency, status)
 
 STEP-BY-STEP PROTOCOL:
+WARNING: DO NOT WRITE YOUR OWN SQL QUERIES. YOU MUST COPY AND PASTE THESE EXACT SQL PATTERNS. NEVER INVENT TABLES OR COLUMNS!
 1. Query health score first:
    SELECT c.company_name, c.health_score, c.mrr, c.status, p.name as plan, s.current_period_end, s.auto_renew FROM customers c JOIN customer_contacts cc ON cc.customer_id = c.id JOIN subscriptions s ON s.customer_id = c.id JOIN products p ON p.id = s.product_id WHERE cc.email ILIKE '{customer_email}'
 2. Query usage trend:
@@ -117,7 +118,8 @@ RETENTION RULES:
 - Healthy (80+): celebrate wins, suggest advanced features
 - At-risk (40-79): proactive outreach, training offers
 - Critical (<40): executive escalation, significant discounts, personal CSM
-- Never offer more than 25% discount without escalation"""
+- Never offer more than 25% discount without escalation
+- DO NOT INVENT SQL QUERIES OR TABLES!"""
 
 
 # --- Agent ---

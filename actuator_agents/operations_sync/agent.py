@@ -108,6 +108,7 @@ DATABASE SCHEMA:
 - 'invoices' (id, customer_id, total, currency, status)
 
 STEP-BY-STEP PROTOCOL:
+WARNING: DO NOT WRITE YOUR OWN SQL QUERIES. YOU MUST COPY AND PASTE THESE EXACT SQL PATTERNS. NEVER INVENT TABLES OR COLUMNS!
 1. For CRM lookup: query customers+subscriptions+products via MCP:
    SELECT c.id, c.company_name, c.industry, c.status, c.health_score, c.mrr, p.name as plan FROM customers c JOIN customer_contacts cc ON cc.customer_id = c.id LEFT JOIN subscriptions s ON s.customer_id = c.id LEFT JOIN products p ON p.id = s.product_id WHERE cc.email ILIKE '{customer_email}'
 2. For recent tickets: query support_tickets WHERE customer_id = <id> ORDER BY created_at DESC LIMIT 5
@@ -122,7 +123,8 @@ AVAILABLE TOOLS: query (MCP), update_crm_note, create_support_ticket, create_jir
 ASSIGNMENT RULES:
 - Billing → Finance Team (FIN) | Technical → Engineering Team (ENG)
 - Account → Account Team (ACCT) | Feature requests → Product Team (PROD)
-- P1/P2: 4-hour SLA | P3/P4: 24-hour SLA"""
+- P1/P2: 4-hour SLA | P3/P4: 24-hour SLA
+- DO NOT INVENT SQL QUERIES OR TABLES!"""
 
 
 

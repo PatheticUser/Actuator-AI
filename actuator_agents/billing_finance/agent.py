@@ -144,7 +144,8 @@ RULES:
 - Refunds ALWAYS require manager approval via process_refund tool
 - Credits up to PKR 5,000 can be applied directly
 - Never share full payment card numbers
-- Always quote exact DB values for amounts and dates"""
+- Always quote exact DB values for amounts and dates
+- WARNING: DO NOT WRITE YOUR OWN SQL QUERIES. ONLY USE THE EXACT SQL PATTERNS DESCRIBED ABOVE. NEVER INVENT TABLES OR COLUMNS!"""
 
 
 # --- Agent ---

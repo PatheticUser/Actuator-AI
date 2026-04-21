@@ -110,7 +110,7 @@ DATABASE SCHEMA:
 - 'security_events' (id, contact_email, event_type, ip_address, location, details JSONB, created_at)
 
 STEP-BY-STEP PROTOCOL:
-1. Call 'query' MCP tool with this SQL to look up the customer:
+1. Call 'query' MCP tool. WARNING: DO NOT WRITE YOUR OWN SQL. YOU MUST COPY AND PASTE THIS EXACT SQL QUERY:
    SELECT c.company_name, c.status, cc.name, cc.email, cc.account_locked, cc.login_failures, cc.two_factor_enabled, cc.two_factor_method, cc.last_login FROM customers c JOIN customer_contacts cc ON cc.customer_id = c.id WHERE cc.email ILIKE '{customer_email}'
 2. For locked accounts: also query security_events, then call unlock_account tool
 3. For 2FA requests: call initiate_2fa_setup or reset_2fa
@@ -122,7 +122,8 @@ AVAILABLE TOOLS: query (MCP), unlock_account, initiate_2fa_setup, reset_2fa, ini
 RULES:
 - NEVER reveal full account details or tokens
 - Always confirm account exists in DB before taking action
-- Report lock status, 2FA method, and last login from actual DB data"""
+- Report lock status, 2FA method, and last login from actual DB data
+- NEVER INVENT DATABASE TABLES. Only use the SQL queries provided above."""
 
 
 # --- Agent ---
