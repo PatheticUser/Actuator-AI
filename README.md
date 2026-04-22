@@ -204,7 +204,16 @@ SECRET_KEY=your-secret-key-here  # Change in production
 
 ## Running the Application
 
-### Development Mode
+### Unified Script (Recommended)
+
+```bash
+# Single command starts both servers
+./run.sh  # Linux/macOS
+# OR
+run.bat   # Windows
+```
+
+### Manual Development Mode
 
 ```bash
 # Terminal 1: Backend (serves API + static UI)
