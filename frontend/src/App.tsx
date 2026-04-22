@@ -1,10 +1,12 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { marked } from 'marked'
-import { fetchAgents, type Agent, streamMessage, API_BASE } from './api'
+import { fetchAgents, type Agent, streamMessage } from './api'
 import { useChatStore, type ChatMessage } from './store'
 import { Plus, Menu, Send, Bot, Shield, CreditCard, TrendingUp, Settings, Globe, FileCheck, AlertCircle, Zap, Sparkles, User, AlertTriangle } from 'lucide-react'
 import LandingPage from './LandingPage'
 import EnhancedAuth from './EnhancedAuth'
+import Docs from './Docs'
+import { Routes, Route, Navigate, useNavigate } from 'react-router-dom'
 import './index.css'
 import './App.css'
 import './LandingPage.css'
@@ -97,67 +99,20 @@ function MessageBubble({ msg }: { msg: ChatMessage }) {
 export default function App() {
   const store = useChatStore()
   const user = store.user
-  const [showLanding, setShowLanding] = useState(!user)
-
-  useEffect(() => {
-    setShowLanding(!user)
-  }, [user])
-
-  if (showLanding) {
-    return <LandingPage onGetStarted={() => setShowLanding(false)} />
-  }
-
-  if (!user) {
-    return <EnhancedAuth />
-  }
-
-  return <ChatApp />
-}
-
-function AuthOverlay() {
-  const store = useChatStore()
-  const [isLogin, setIsLogin] = useState(true)
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
-  const [name, setName] = useState('')
-  const [error, setError] = useState('')
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setError('')
-    try {
-      const endpoint = isLogin ? '/auth/login' : '/auth/signup'
-      const body = isLogin ? { email, password } : { email, password, name }
-      const res = await fetch(API_BASE + endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.detail || 'Auth failed')
-      store.setUser({ email: data.email, name: data.name, token: data.access_token })
-    } catch (err: any) {
-      setError(err.message)
-    }
-  }
+  const navigate = useNavigate()
 
   return (
-    <div className="auth-container" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: 'var(--bg-0)' }}>
-      <form onSubmit={handleSubmit} style={{ background: 'var(--bg-1)', padding: '32px', borderRadius: '24px', border: '1px solid var(--border)', width: '360px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-        <h2 style={{ textAlign: 'center' }}>Actuator AI</h2>
-        <div style={{ display: 'flex', gap: '8px', background: 'var(--bg-2)', padding: '4px', borderRadius: '8px' }}>
-          <button type="button" onClick={() => setIsLogin(true)} style={{ flex: 1, padding: '8px', border: 'none', background: isLogin ? 'var(--accent)' : 'transparent', color: '#fff', borderRadius: '4px', cursor: 'pointer' }}>Login</button>
-          <button type="button" onClick={() => setIsLogin(false)} style={{ flex: 1, padding: '8px', border: 'none', background: !isLogin ? 'var(--accent)' : 'transparent', color: '#fff', borderRadius: '4px', cursor: 'pointer' }}>Sign Up</button>
-        </div>
-        {!isLogin && <input type="text" placeholder="Name" value={name} onChange={e => setName(e.target.value)} required className="email-input" style={{ width: '100%', border: '1px solid var(--border)', padding: '10px 14px', borderRadius: '8px' }} />}
-        <input type="email" placeholder="Email" value={email} onChange={e => setEmail(e.target.value)} required className="email-input" style={{ width: '100%', border: '1px solid var(--border)', padding: '10px 14px', borderRadius: '8px' }} />
-        <input type="password" placeholder="Password" value={password} onChange={e => setPassword(e.target.value)} required className="email-input" style={{ width: '100%', border: '1px solid var(--border)', padding: '10px 14px', borderRadius: '8px' }} />
-        {error && <div style={{ color: 'var(--red)', fontSize: '12px', textAlign: 'center' }}>{error}</div>}
-        <button type="submit" style={{ padding: '12px', background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 600 }}>{isLogin ? 'Log In' : 'Sign Up'}</button>
-      </form>
-    </div>
+    <Routes>
+      <Route path="/" element={user ? <ChatApp /> : <LandingPage onGetStarted={() => navigate('/login')} />} />
+      <Route path="/login" element={user ? <Navigate to="/" /> : <EnhancedAuth />} />
+      <Route path="/docs" element={<Docs />} />
+    </Routes>
   )
 }
+
+// Remove the unused AuthOverlay defined below (was redundant with EnhancedAuth)
+
+
 
 function ChatApp() {
   const store = useChatStore()

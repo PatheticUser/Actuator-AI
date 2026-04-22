@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { ChevronRight, Sparkles, Shield, Zap, Users, BarChart3, Globe, ArrowRight, Database, UserCheck, Cpu, Network, FileSearch } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 import './LandingPage.css'
 
 const AGENT_FEATURES = [
@@ -64,6 +65,7 @@ export default function LandingPage({ onGetStarted }: { onGetStarted: () => void
   const [currentFeature, setCurrentFeature] = useState(0)
   const [, setIsVisible] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
+  const navigate = useNavigate()
 
   useEffect(() => {
     setIsVisible(true)
@@ -103,13 +105,12 @@ export default function LandingPage({ onGetStarted }: { onGetStarted: () => void
           </div>
 
           <h1 className="hero-title">
-            Intelligent Customer Support
-            <span className="gradient-text"> Powered by AI Agents</span>
+            Automate Complex Support <span className="gradient-text">With Precision</span>
           </h1>
 
           <p className="hero-description">
-            Actuator AI orchestrates 8 specialized agents to handle complex customer support scenarios
-            with enterprise-grade security, real-time database access, and human-in-the-loop oversight.
+            Empower your team with a coordinated virtual workforce. Actuator AI orchestrates specialized agents 
+            to resolve technical, security, and billing crises in seconds, not hours.
           </p>
 
           <div className="hero-actions">
@@ -123,7 +124,7 @@ export default function LandingPage({ onGetStarted }: { onGetStarted: () => void
               <ArrowRight size={16} />
             </motion.button>
 
-            <button className="secondary-button" onClick={() => document.getElementById('docs')?.scrollIntoView({ behavior: 'smooth' })}>
+            <button className="secondary-button" onClick={() => navigate('/docs')}>
               View Documentation
               <ChevronRight size={16} />
             </button>
