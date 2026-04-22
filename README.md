@@ -9,16 +9,15 @@ Production-grade multi-agent customer support platform. Built on **OpenAI Agents
 ### Request Flow
 
 ```
-POST /api/v1/chat/
-  → FastAPI resolves conversation_id
-  → History reconstructed from PostgreSQL (guardrail-blocked messages excluded)
+WebSocket /api/v1/chat/ws
+  → FastAPI reconstructs history from PostgreSQL (guardrail-blocked messages excluded)
   → Fresh MCP server spawned per request (factory pattern, not singleton)
-  → MCP assigned to all 8 agents
-  → Runner.run(supervisor, history, context={customer_email})
+  → Native `Runner.run_streamed()` yields `AgentResponseStream` JSON chunks
   → Supervisor classifies → handoff to specialist
-  → Specialist queries DB via MCP → calls function tools → returns response
-  → Messages saved to DB only on success (not on guardrail block)
-  → MCP disconnected and refs cleared
+  → Specialist queries DB via exact SQL guardrails → streams tokens to client
+  → Client detects agent handoffs (`agent_update`) and splits visual message bubbles automatically
+  → Messages saved to DB only on successfully finishing the stream
+  → WebSocket terminates gracefully (saving resources)
 ```
 
 ### Agent Graph
@@ -45,6 +44,7 @@ POST /api/v1/chat/
 ```
 Conversation State   : conversations, messages
 Customer Data        : customers, customer_contacts, subscriptions, products
+Authentication       : customer (FastAPI Auth model with hashed_password)
 Billing              : invoices, invoice_line_items, payments, refunds, api_usage
 Operational          : support_tickets, ticket_comments, knowledge_articles,
                        feature_flags, feedback, audit_logs, escalations,
@@ -78,6 +78,11 @@ Three `InputGuardrail` functions run before any agent processes a message:
 | `detect_sql_injection` | Keyword match: `DROP TABLE`, `UNION SELECT`, `OR 1=1`, etc. |
 
 **Guardrail isolation fix**: blocked messages are **not** persisted to DB. History replay filters out `agent_name = 'Guardrail'` rows, preventing re-trigger on subsequent clean messages.
+
+### SQL Strictness Lock
+
+To prevent smaller local models from interpreting database schemas independently and entering hallucination-retry loops (`Max turns 10 exceeded`), all database-aware agents enforce this instruction logic: 
+> `WARNING: DO NOT WRITE YOUR OWN SQL QUERIES. YOU MUST COPY AND PASTE THESE EXACT SQL PATTERNS. NEVER INVENT TABLES.`
 
 ---
 
@@ -156,9 +161,9 @@ cd frontend && npm run dev
 | Layer | Technology |
 |---|---|
 | Agent SDK | `openai-agents >= 0.13.6` |
-| Backend | FastAPI + SQLModel + psycopg2 |
+| Backend | FastAPI + SQLModel + psycopg2 + bcrypt + PyJWT |
 | Database access | MCP (`@modelcontextprotocol/server-postgres`) |
 | Inference | Ollama (OpenAI-compat API) |
-| Frontend | React 19 + Vite 8 + TypeScript |
+| Frontend | React 19 + Vite 8 + Zustand + Lucide UI |
 | Markdown | `marked` |
 | Config | `pydantic-settings` + `.env` |
