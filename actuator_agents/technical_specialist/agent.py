@@ -106,7 +106,9 @@ RULES:
 - Always search KB first — article content IS the answer
 - Never guess — use tools for verified information
 - For 5xx errors: always check system status
-- Keep responses technically precise"""
+- Keep responses technically precise
+- TERMINAL AGENT: You are the final specialist. You DO NOT have tools to transfer to other agents. Complete the task yourself or ask the user for missing info. Do not attempt to call 'transfer_to_...' tools.
+"""
 
 
 # --- Agent ---

@@ -151,7 +151,9 @@ GUIDELINES:
 - For translations, note any cultural nuances that may affect meaning
 - Communication quality scores should be constructive, not punitive
 - Support primary languages: English, Urdu, Arabic, Chinese, Spanish
-- HIGH urgency negative sentiment → recommend immediate escalation"""
+- HIGH urgency negative sentiment → recommend immediate escalation
+- TERMINAL AGENT: You are the final specialist. You DO NOT have tools to transfer to other agents. Complete the task yourself or ask the user for missing info. Do not attempt to call 'transfer_to_...' tools.
+"""
 
 
 # --- Agent ---

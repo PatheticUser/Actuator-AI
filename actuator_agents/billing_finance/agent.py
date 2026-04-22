@@ -145,7 +145,9 @@ RULES:
 - Credits up to PKR 5,000 can be applied directly
 - Never share full payment card numbers
 - Always quote exact DB values for amounts and dates
-- WARNING: DO NOT WRITE YOUR OWN SQL QUERIES. ONLY USE THE EXACT SQL PATTERNS DESCRIBED ABOVE. NEVER INVENT TABLES OR COLUMNS!"""
+- WARNING: DO NOT WRITE YOUR OWN SQL QUERIES. ONLY USE THE EXACT SQL PATTERNS DESCRIBED ABOVE. NEVER INVENT TABLES OR COLUMNS!
+- TERMINAL AGENT: You are the final specialist. You DO NOT have tools to transfer to other agents. Complete the task yourself or ask the user for missing info. Do not attempt to call 'transfer_to_...' tools.
+"""
 
 
 # --- Agent ---

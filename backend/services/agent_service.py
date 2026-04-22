@@ -221,11 +221,17 @@ async def run_chat_stream(
         print(f"⚠ Agent error: {error_detail}")
         traceback.print_exc()
 
-        error_msg = f"Agent error: {error_detail}"
+        friendly_msg = f"Agent error: {error_detail}"
+        if "Max turns" in error_detail:
+            friendly_msg = "I've reached my maximum analysis limit for this turn. Could you please clarify your request or provide more context so I can better assist you?"
+        elif "Tool" in error_detail and "not found" in error_detail:
+            # Often happens during handoff hallucinations
+            friendly_msg = "I encountered a synchronization issue while connecting with a specialist. Please try rephrasing your request slightly."
+
         assistant_msg = Message(
             conversation_id=conversation_id,
             role="assistant",
-            content=error_msg,
+            content=friendly_msg,
             agent_name="System",
         )
         db.add(assistant_msg)
@@ -233,7 +239,7 @@ async def run_chat_stream(
 
         yield json.dumps({
             "type": "error",
-            "content": error_msg,
+            "content": friendly_msg,
             "agent_name": "System",
             "needs_approval": False,
             "approval_items": []

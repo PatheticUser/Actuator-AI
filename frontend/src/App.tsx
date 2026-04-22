@@ -254,7 +254,7 @@ function ChatApp() {
             </div>
           ) : (
             <div className="messages">
-              {messages.map((msg, i) => (
+              {messages.filter(msg => (msg.content && msg.content.trim() !== '') || msg.isStreaming).map((msg, i) => (
                 <MessageBubble key={i} msg={msg} />
               ))}
               {loading && activeAgent !== 'System' && messages[messages.length-1]?.role !== 'assistant' && (

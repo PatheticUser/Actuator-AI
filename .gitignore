@@ -5,12 +5,36 @@ build/
 dist/
 wheels/
 *.egg-info
+.pytest_cache/
+.coverage
+.uv/
 
 # Virtual environments
-.venv
+.venv/
+venv/
+ENV/
 
+# JavaScript / Node
+node_modules/
+frontend/node_modules/
+frontend/dist/
+.npm
+*-debug.log*
+*-error.log*
+
+# Environment & Sensitive
 .env
+.env.*
+!.env.example
+
+# IDEs, Tools & System
 .vscode/
-shared/.DS_Store
-agents/.DS_Store
+.claude/
+.idea/
+*.swp
+*.swo
 .DS_Store
+**/ .DS_Store
+
+# Project Specific
+*.log
