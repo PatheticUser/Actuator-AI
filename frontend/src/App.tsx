@@ -2,9 +2,12 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { marked } from 'marked'
 import { fetchAgents, type Agent, streamMessage, API_BASE } from './api'
 import { useChatStore, type ChatMessage } from './store'
-import { Plus, Menu, Send, Bot, Shield, CreditCard, TrendingUp, Settings, Globe, FileCheck, AlertCircle } from 'lucide-react'
+import { Plus, Menu, Send, Bot, Shield, CreditCard, TrendingUp, Settings, Globe, FileCheck, AlertCircle, Zap, Sparkles, User, AlertTriangle } from 'lucide-react'
+import LandingPage from './LandingPage'
+import EnhancedAuth from './EnhancedAuth'
 import './index.css'
 import './App.css'
+import './LandingPage.css'
 
 // Configure marked for safe rendering
 marked.setOptions({ breaks: true, gfm: true })
@@ -27,10 +30,10 @@ function getAgentConfig(name: string) {
 }
 
 const QUICK_PROMPTS = [
-  { icon: '📄', text: 'Check invoice INV-2026-0301 for ahmed@techvista.pk' },
-  { icon: '🔒', text: "My account is locked, email bilal@datapulse.pk" },
-  { icon: '🔧', text: "Our API returns 502 errors on user-service, im sara@novabyte.io" },
-  { icon: '📊', text: "Show health score and feature adoption for sara@novabyte.io" },
+  { text: 'Check invoice INV-2026-0301 for ahmed@techvista.pk' },
+  { text: "My account is locked, email bilal@datapulse.pk" },
+  { text: "Our API returns 502 errors on user-service, im sara@novabyte.io" },
+  { text: "Show health score and feature adoption for sara@novabyte.io" },
 ]
 
 function TypingDots({ agentName }: { agentName?: string }) {
@@ -77,14 +80,14 @@ function MessageBubble({ msg }: { msg: ChatMessage }) {
         </div>
         {msg.needs_approval && msg.approval_items && (
           <div className="approval-notice">
-            <span className="approval-icon">⚠️</span>
+            <AlertTriangle size={14} />
             <span>Requires manager approval: <strong>{msg.approval_items.join(', ')}</strong></span>
           </div>
         )}
       </div>
       {isUser && (
         <div className="msg-avatar user-avatar">
-          <span className="avatar-emoji">👤</span>
+          <User size={14} />
         </div>
       )}
     </div>
@@ -94,9 +97,18 @@ function MessageBubble({ msg }: { msg: ChatMessage }) {
 export default function App() {
   const store = useChatStore()
   const user = store.user
-  
+  const [showLanding, setShowLanding] = useState(!user)
+
+  useEffect(() => {
+    setShowLanding(!user)
+  }, [user])
+
+  if (showLanding) {
+    return <LandingPage onGetStarted={() => setShowLanding(false)} />
+  }
+
   if (!user) {
-    return <AuthOverlay />
+    return <EnhancedAuth />
   }
 
   return <ChatApp />
@@ -203,7 +215,9 @@ function ChatApp() {
       <aside className={`sidebar ${sidebarOpen ? 'open' : 'closed'}`}>
         <div className="sidebar-top">
           <div className="logo">
-            <div className="logo-icon">⚡</div>
+            <div className="logo-icon">
+              <Zap size={18} />
+            </div>
             {sidebarOpen && (
               <div className="logo-text">
                 <div className="logo-name">Actuator AI</div>
@@ -270,13 +284,14 @@ function ChatApp() {
           {isEmpty ? (
             <div className="welcome">
               <div className="welcome-orb" />
-              <div className="welcome-icon">⚡</div>
+              <div className="welcome-icon">
+                <Sparkles size={28} />
+              </div>
               <h1 className="welcome-title">How can I help?</h1>
               <p className="welcome-sub">Route your request to one of 8 specialist agents — billing, technical, security, success, operations, linguistic, or audit.</p>
               <div className="quick-prompts">
                 {QUICK_PROMPTS.map((q, i) => (
                   <button key={i} className="quick-prompt" onClick={() => handleSend(q.text)}>
-                    <span className="qp-icon">{q.icon}</span>
                     <span>{q.text}</span>
                   </button>
                 ))}
