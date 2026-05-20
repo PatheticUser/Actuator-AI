@@ -1,8 +1,8 @@
 <div align="center">
 
-# ⚡ Actuator AI
+# Actuator AI
 
-**Enterprise-Grade Multi-Agent Customer Support Orchestration Platform**
+**Production-Grade Multi-Agent Customer Support Orchestration Platform**
 
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB?style=flat&logo=python&logoColor=white)](https://python.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.135.3+-009688?style=flat&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
@@ -28,24 +28,28 @@
 7. [MCP Integration](#mcp-model-context-protocol-integration)
 8. [Human-in-the-Loop (HITL) Workflows](#human-in-the-loop-hitl-workflows)
 9. [Model Inference Architecture](#model-inference-architecture)
-10. [Setup & Installation](#setup--installation)
-11. [API Reference](#api-reference)
-12. [Project Structure](#project-structure)
-13. [Development Workflow](#development-workflow)
-14. [Production Deployment](#production-deployment)
-15. [Monitoring & Observability](#monitoring--observability)
+10. [Authentication & Authorization](#authentication--authorization)
+11. [Frontend Architecture](#frontend-architecture)
+12. [Setup & Installation](#setup--installation)
+13. [API Reference](#api-reference)
+14. [Project Structure](#project-structure)
+15. [Development Workflow](#development-workflow)
+16. [Production Deployment](#production-deployment)
 
 ---
 
 ## Architecture Overview
 
-Actuator AI is built on a **supervisor-router pattern** using the OpenAI Agents SDK. A central supervisor agent classifies incoming customer requests and routes them to specialized agents, each equipped with domain-specific tools and real-time PostgreSQL access via the Model Context Protocol (MCP).
+Actuator AI implements the **supervisor-router orchestration pattern** atop the OpenAI Agents SDK. A central supervisor agent classifies incoming customer requests via keyword-weighted intent scoring, then delegates to one of seven domain-specialist agents through the SDK's native handoff mechanism. Each specialist agent is equipped with domain-specific function tools and real-time PostgreSQL access through the Model Context Protocol (MCP).
 
 ### Core Architectural Decisions
 
 #### 1. Per-Request MCP Isolation
 
-Each WebSocket request receives a **fresh** `MCPServerStdio` instance. This prevents singleton lifecycle conflicts that manifest as `"Server not initialized"` errors during agent handoffs:
+Each WebSocket connection receives a **fresh** `MCPServerStdio` instance. The OpenAI Agents SDK's MCP implementation maintains an internal state machine for connect/disconnect lifecycle operations. When agent handoffs occur mid-conversation, a shared singleton MCP instance triggers race conditions manifesting as "Server not initialized" errors. The factory pattern guarantees isolated lifecycle management.
+
+<details>
+<summary>MCP factory pattern implementation</summary>
 
 ```python
 # shared/mcp_config.py
@@ -64,12 +68,34 @@ def create_mcp_postgres() -> MCPServerStdio:
     )
 ```
 
-#### 2. Guardrail Poisoning Prevention
-
-Messages blocked by guardrails are **never persisted** to the conversation history. They are stored with `agent_name = 'Guardrail'` and filtered out during history reconstruction, preventing re-triggering on subsequent clean messages:
+Lifecycle in the orchestrator:
 
 ```python
-# backend/services/agent_service.py
+async def run_chat_stream(...):
+    mcp = create_mcp_postgres()    # 1. Fresh instance
+    await mcp.connect()            # 2. Initialize transport
+
+    async with _run_lock:
+        for ag in _ALL_AGENTS:
+            ag.mcp_servers = [mcp] # 3. Assign to all agents (read-only)
+
+        try:
+            result = Runner.run_streamed(supervisor, input_list, ...)
+        finally:
+            for ag in _ALL_AGENTS:
+                ag.mcp_servers = []  # 4. Clear references
+            await mcp.cleanup()      # 5. Graceful teardown
+```
+</details>
+
+#### 2. Guardrail Poisoning Prevention
+
+Blocked messages must never contaminate conversation history. If a user message triggers a guardrail, it is **not persisted**. Only the guardrail's response is stored -- tagged with `agent_name = 'Guardrail'` -- and filtered out during history reconstruction. This prevents re-triggering on subsequent clean messages and maintains conversation integrity.
+
+<details>
+<summary>History reconstruction filtering guardrail responses</summary>
+
+```python
 prior_messages = db.exec(
     select(Message)
     .where(Message.conversation_id == conversation_id)
@@ -77,106 +103,100 @@ prior_messages = db.exec(
     .order_by(Message.created_at)
 ).all()
 ```
+</details>
 
-#### 3. SQL Strictness Enforcement
+#### 3. SQL Hallucination Prevention
 
-To prevent local LLMs from hallucinating schema objects and entering retry loops, each agent prompt enforces copy-paste SQL patterns:
+Local LLMs frequently hallucinate non-existent database columns, tables, or SQL syntax, entering retry loops that exhaust the agent's `max_turns`. Each agent prompt embeds **exact copy-paste SQL patterns** with an explicit instruction against writing custom SQL.
+
+<details>
+<summary>Example SQL pattern embedded in agent prompts</summary>
 
 ```
 WARNING: DO NOT WRITE YOUR OWN SQL QUERIES. YOU MUST COPY AND PASTE
 THESE EXACT SQL PATTERNS. NEVER INVENT TABLES OR COLUMNS!
+
+SELECT c.company_name, c.health_score, c.mrr, c.status,
+       p.name as plan, s.current_period_end, s.auto_renew
+FROM customers c
+JOIN customer_contacts cc ON cc.customer_id = c.id
+JOIN subscriptions s ON s.customer_id = c.id
+JOIN products p ON p.id = s.product_id
+WHERE cc.email ILIKE '{customer_email}'
 ```
+</details>
 
 #### 4. Asynchronous Request Serialization
 
-A module-level `asyncio.Lock` prevents concurrent requests from clashing on shared agent object state:
+A module-level `asyncio.Lock` serializes concurrent requests. The OpenAI Agents SDK's agent objects maintain mutable state (e.g., `mcp_servers`, current turn tracking), and shared mutation across concurrent `Runner.run_streamed()` calls produces non-deterministic behavior.
 
-```python
-_run_lock = asyncio.Lock()
+#### 5. Hybrid Database Approach
 
-async with _run_lock:
-    mcp = create_mcp_postgres()
-    await mcp.connect()
-    for ag in _ALL_AGENTS:
-        ag.mcp_servers = [mcp]
-    # ... run agent pipeline ...
-    for ag in _ALL_AGENTS:
-        ag.mcp_servers = []
-    await mcp.cleanup()
-```
+The project uses a **dual strategy** for database access:
+
+| Layer | Technology | Scope |
+|---|---|---|
+| **ORM** | SQLModel (Pydantic + SQLAlchemy) | Conversation/message CRUD in `backend/models/conversation.py` |
+| **Raw SQL** | psycopg2 with `RealDictCursor` | All 21 business tables via DDL in `schema.sql` |
+| **MCP Query** | `@modelcontextprotocol/server-postgres` | Agent runtime DB access through OpenAI Agents SDK |
+
+FastAPI's `lifespan` handler calls `SQLModel.metadata.create_all(engine)` on startup for ORM-managed tables. The 21-table DDL schema is applied separately via `psql -f schema.sql`.
 
 ---
 
 ## Request Lifecycle
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                             REQUEST LIFECYCLE                               │
-└─────────────────────────────────────────────────────────────────────────────┘
+END-TO-END REQUEST LIFECYCLE
 
-Client (React SPA)
-    │
-    ▼ WebSocket /api/v1/chat/ws
-┌────────────────────────────────────────────────┐
-│ 1. FastAPI accepts WebSocket connection         │
-│ 2. Deserializes: {message, conversation_id,     │
-│                   customer_email}               │
-│ 3. Creates/retrieves Conversation from DB       │
-│ 4. Rebuilds history (filtering Guardrail msgs)  │
-└──────────────────┬─────────────────────────────┘
-                   │
-                   ▼
-┌────────────────────────────────────────────────┐
-│ 5. Creates fresh MCPServerStdio instance        │
-│ 6. Acquires _run_lock                          │
-│ 7. Assigns MCP to all 8 agents                 │
-│ 8. Calls Runner.run_streamed(supervisor, input) │
-└──────────────────┬─────────────────────────────┘
-                   │
-                   ▼
-┌────────────────────────────────────────────────┐
-│ 9. Supervisor.classify_request()                │
-│    → Category detection via keyword scoring     │
-│    → Priority assignment (urgent signal check)  │
-│                                                 │
-│ 10. Supervisor transfers to specialist agent    │
-│     via handoff (agent_update event emitted)    │
-│                                                 │
-│ 11. Specialist agent:                           │
-│     a. Queries PostgreSQL via MCP 'query' tool  │
-│     b. Calls domain function_tools              │
-│     c. Streams ResponseTextDelta events         │
-│     d. Optionally creates support tickets       │
-└──────────────────┬─────────────────────────────┘
-                   │
-                   ▼
-┌────────────────────────────────────────────────┐
-│ 12. Client UI:                                  │
-│     • text events → update streaming message    │
-│     • agent_update → split message bubble       │
-│     • done → finalize + close WebSocket         │
-│     • error → display error message             │
-│                                                 │
-│ 13. On completion:                              │
-│     • Persist user + assistant messages to DB   │
-│     • Update conversation.last_agent            │
-│     • Clear MCP references                      │
-│     • Run mcp.cleanup() in finally block         │
-│     • Release _run_lock                         │
-└────────────────────────────────────────────────┘
+Client (React SPA / static HTML)
+   |
+   | WebSocket: WS /api/v1/chat/ws
+   v
+
+Step 1: FastAPI accepts WebSocket connection
+Step 2: Receive JSON: { message, conversation_id?, customer_email? }
+Step 3: New conversation -> Create Conversation(id=uuid4(), ...)
+         Existing conversation -> Fetch by conversation_id
+Step 4: Send conv_id event to client
+Step 5: Rebuild history (excluding Guardrail messages)
+Step 6: Acquire _run_lock (asyncio.Lock)
+Step 7: MCP lifecycle Phase 1: create_mcp_postgres() -> connect()
+Step 8: Runner.run_streamed(supervisor, input_list, context={...})
+
+Step 9: Supervisor processes input:
+    a. Input guardrails fire (jailbreak -> PII -> SQL injection)
+       If triggered -> GuardrailTripwireTripped -> error event
+    b. classify_request(message) -> keyword scoring across 7 categories
+    c. Handoff to specialist via SDK mechanism
+    d. If ambiguous -> asks one clarification question
+
+Step 10: Specialist agent executes:
+    a. Queries PostgreSQL via MCP 'query' tool
+    b. Calls domain function_tools
+    c. Streams ResponseTextDeltaEvent events to client
+    d. If refund tool called -> HITL interruption
+
+Step 11: Stream completion:
+    a. MCP lifecycle Phase 2: cleanup() -> release _run_lock
+    b. Persist user and assistant messages to DB
+    c. Update conversation.last_agent
+    d. Send "done" event
+
+Step 12: Client receives final event with agent_name, needs_approval
 ```
 
 ### Stream Event Protocol
 
-The WebSocket stream yields JSON events with the following type discriminator:
-
-| Event Type | Direction | Payload | Description |
+| Event Type | Direction | Payload Schema | Description |
 |---|---|---|---|
-| `conv_id` | Server → Client | `{conversation_id}` | Assigned conversation UUID |
-| `content` | Server → Client | `{agent_name, content}` | Incremental response tokens |
-| `agent_update` | Server → Client | `{agent_name}` | Agent handoff notification |
-| `done` | Server → Client | `{needs_approval, approval_items}` | Stream termination signal |
-| `error` | Server → Client | `{content, agent_name}` | Processing failure |
+| `conv_id` | Server -> Client | `{type, conversation_id}` | Assigned conversation UUID; emitted once |
+| `content` | Server -> Client | `{type, agent_name, content}` | Incremental response text deltas |
+| `agent_update` | Server -> Client | `{type, agent_name}` | Agent handoff notification |
+| `done` | Server -> Client | `{type, agent_name, needs_approval, approval_items}` | Stream termination |
+| `error` | Server -> Client | `{type, content, agent_name}` | Processing failure |
+
+All events are JSON-serialized strings sent over a single persistent WebSocket connection.
 
 ---
 
@@ -184,199 +204,203 @@ The WebSocket stream yields JSON events with the following type discriminator:
 
 ### Supervisor Router
 
-The central orchestrator. Every customer message enters through this agent.
+The central orchestrator. Every customer message enters through this agent, which never attempts to solve issues itself -- its sole responsibility is classification and routing.
 
-| Aspect | Detail |
+| Property | Value |
 |---|---|
-| **Domain** | Request triage, classification, escalation |
-| **Tools** | `classify_request`, `escalate_to_human` |
-| **Handoffs** | 7 specialist agents |
-| **Guardrails** | Jailbreak, PII, SQL injection |
-| **Model** | `qwen2.5:7b` (temp: 0.2, max_tokens: 800) |
+| **Agent Name** | Supervisor Router |
+| **Model** | `qwen2.5:7b` |
+| **Temperature** | 0.20 |
+| **Max Tokens** | 800 |
+| **Input Guardrails** | Jailbreak, PII, SQL Injection |
+| **Function Tools** | `classify_request`, `escalate_to_human` |
 
-The supervisor uses keyword-based intent classification with weighted scoring across 7 categories, then immediately transfers to the matching specialist via the SDK's handoff mechanism.
+**classify_request** -- Scans the message against 7 predefined category dictionaries. Each dictionary contains domain-specific signal keywords. The category with the highest cumulative signal score is selected. Priority is determined by urgency keyword presence (P1-critical vs P3-medium).
 
-### Technical Specialist
+**escalate_to_human** -- Creates an escalation record with SLA tracking when the agent pipeline cannot resolve. Returns ESC-XXXXX formatted escalation assigned to on-duty supervisor with 30-minute SLA.
 
-Diagnoses API errors, SDK issues, and infrastructure problems.
+### Domain Specialist Agents
 
-| Aspect | Detail |
+| Agent | Model | Temp | Max Tokens | Function Tools | DB Tables (via MCP) |
+|---|---|---|---|---|---|
+| **Technical Specialist** | `qwen2.5:7b` | 0.2 | 1200 | `diagnose_service`, `check_system_status`, `create_support_ticket` | knowledge_articles, support_tickets, ticket_comments, api_usage, customers, customer_contacts |
+| **Account Security Agent** | `qwen2.5:7b` | 0.2 | 1000 | `unlock_account`, `initiate_2fa_setup`, `reset_2fa`, `initiate_password_reset`, `update_profile` | customers, customer_contacts, security_events |
+| **Billing Finance Agent** | `qwen2.5:7b` | 0.2 | 1000 | `change_plan`, `process_refund*`, `apply_credit` | invoices, invoice_line_items, subscriptions, products, payments, refunds, api_usage, customer_contacts |
+| **Success Retention Agent** | `qwen2.5:7b` | 0.4 | 1200 | `schedule_check_in`, `create_renewal_offer`, `log_churn_intervention` | customers, api_usage, feature_flags, feedback, support_tickets, subscriptions, products |
+| **Operations Sync Agent** | `qwen2.5:7b` | 0.2 | 1000 | `update_crm_note`, `create_support_ticket`, `create_jira_ticket`, `update_jira_ticket` | support_tickets, ticket_comments, notifications_log, customers, customer_contacts, subscriptions, products |
+| **Linguistic Agent** | `qwen2.5:7b` | 0.3 | 1000 | `detect_language`, `translate_text`, `analyze_sentiment`, `assess_communication_quality` | feedback |
+| **Audit Agent** | `qwen2.5:7b` | 0.1 | 1200 | `check_hallucination`, `check_policy_compliance`, `audit_conversation`, `score_response_accuracy`, `generate_qa_report` | audit_logs, escalations, conversations, messages |
+
+Key behaviors:
+- **Billing**: `process_refund` has `needs_approval=True` -- triggers HITL workflow. Credit limits: <= PKR 5,000 direct; larger amounts require escalation.
+- **Success Retention**: Health thresholds: >=80 Healthy, 40-79 At Risk, <40 Critical. Maximum discount: 25% without escalation.
+- **Technical Specialist**: Protocol is Search KB -> Check system status -> Diagnose error -> Create ticket.
+- **Account Security**: Write operations logged to security_events for audit trail.
+- **Operations Sync**: Assignment mapping: Billing->Finance, Technical->Engineering, Account->Account Team, Feature requests->Product Team. SLA: P1/P2=4h, P3/P4=24h.
+
+### Error Diagnostics Map (Technical Specialist)
+
+| Error Code | Root Cause Diagnosis |
 |---|---|
-| **Domain** | API errors, SDK issues, system diagnostics, knowledge base |
-| **Tools** | `diagnose_service`, `check_system_status`, `create_support_ticket`, MCP `query` |
-| **DB Access** | `knowledge_articles`, `support_tickets` |
-| **Model** | `qwen2.5:7b` (temp: 0.2, max_tokens: 1200) |
-
-Protocol: Search KB first → Check system status → Diagnose error → Create ticket if unresolved.
-
-### Account Security Agent
-
-Handles authentication, 2FA, lockouts, and profile management.
-
-| Aspect | Detail |
-|---|---|
-| **Domain** | Login issues, 2FA setup/reset, password reset, account unlock, profile updates |
-| **Tools** | `unlock_account`, `initiate_2fa_setup`, `reset_2fa`, `initiate_password_reset`, `update_profile`, MCP `query` |
-| **DB Access** | `customers`, `customer_contacts`, `security_events` |
-| **Model** | `qwen2.5:7b` (temp: 0.2, max_tokens: 1000) |
-
-Protocol: Query account → Check lock/2FA status → Execute tool → Log security event.
-
-### Billing Finance Agent
-
-Manages invoices, payments, refunds, and subscription changes.
-
-| Aspect | Detail |
-|---|---|
-| **Domain** | Invoices, payments, refunds, plan changes, credits, usage |
-| **Tools** | `change_plan`, `process_refund*`, `apply_credit`, MCP `query` |
-| **DB Access** | `invoices`, `invoice_line_items`, `subscriptions`, `products`, `payments`, `refunds`, `api_usage` |
-| **Model** | `qwen2.5:7b` (temp: 0.2, max_tokens: 1000) |
-
-`*` `process_refund` has `needs_approval=True` — requires human-in-the-loop intervention.
-
-### Success Retention Agent
-
-Monitors customer health, prevents churn, and drives feature adoption.
-
-| Aspect | Detail |
-|---|---|
-| **Domain** | Health scores, renewal offers, churn intervention, feature adoption |
-| **Tools** | `schedule_check_in`, `create_renewal_offer`, `log_churn_intervention`, MCP `query` |
-| **DB Access** | `customers`, `api_usage`, `feature_flags`, `feedback`, `support_tickets` |
-| **Model** | `qwen2.5:7b` (temp: 0.4, max_tokens: 1200) |
-
-Protocol: Query health → Analyze usage trend → Check feature adoption → Review feedback → Take action.
-
-### Operations Sync Agent
-
-Manages CRM records, support tickets, and Jira integration.
-
-| Aspect | Detail |
-|---|---|
-| **Domain** | CRM updates, Jira tickets, support tickets, task tracking, notifications |
-| **Tools** | `update_crm_note`, `create_support_ticket`, `create_jira_ticket`, `update_jira_ticket`, MCP `query` |
-| **DB Access** | `support_tickets`, `ticket_comments`, `notifications_log` |
-| **Model** | `qwen2.5:7b` (temp: 0.2, max_tokens: 1000) |
-
-### Linguistic Agent
-
-Handles multi-language support, sentiment analysis, and communication QA.
-
-| Aspect | Detail |
-|---|---|
-| **Domain** | Language detection, translation, sentiment analysis, communication quality |
-| **Tools** | `detect_language`, `translate_text`, `analyze_sentiment`, `assess_communication_quality`, MCP `query` |
-| **DB Access** | `feedback` (optional baseline lookup) |
-| **Model** | `qwen2.5:7b` (temp: 0.3, max_tokens: 1000) |
-
-### Audit Agent
-
-Quality assurance, hallucination detection, and policy compliance verification.
-
-| Aspect | Detail |
-|---|---|
-| **Domain** | QA review, hallucination detection, policy compliance, accuracy scoring, conversation audits |
-| **Tools** | `check_hallucination`, `check_policy_compliance`, `audit_conversation`, `score_response_accuracy`, `generate_qa_report`, MCP `query` |
-| **DB Access** | `audit_logs`, `escalations`, `conversations`, `messages` |
-| **Model** | `qwen2.5:7b` (temp: 0.1, max_tokens: 1200) |
+| `500` | Unhandled exception, DB connection timeout, OOM |
+| `502` | Upstream service unreachable, network policy, LB config |
+| `503` | Overloaded or maintenance, check replicas/memory |
+| `429` | Rate limited -- review quota tier |
+| `timeout` | P99 latency spike -- DB query perf, connection pool |
 
 ---
 
 ## Technology Stack
 
-| Layer | Technology | Version | Purpose |
+| Layer | Technology | Version | Description |
 |---|---|---|---|
-| **Agent Framework** | [OpenAI Agents SDK](https://github.com/openai/openai-agents-python) | ≥0.13.6 | Multi-agent orchestration, handoffs, guardrails |
-| **Backend API** | [FastAPI](https://fastapi.tiangolo.com) + [Uvicorn](https://www.uvicorn.org) | ≥0.135.3 | REST endpoints + WebSocket streaming |
-| **Database ORM** | [SQLModel](https://sqlmodel.tiangolo.com) | ≥0.0.38 | Type-safe PostgreSQL models |
-| **Database Driver** | [psycopg2](https://www.psycopg.org) | ≥2.9.11 | PostgreSQL adapter |
-| **Database Access** | [MCP PostgreSQL Server](https://github.com/modelcontextprotocol/servers) | — | Real-time SQL tool access via MCP |
-| **Authentication** | [bcrypt](https://github.com/pyca/bcrypt) + [PyJWT](https://github.com/jpadilla/pyjwt) | ≥5.0.0 + ≥2.12.1 | Password hashing + JWT tokens |
-| **Configuration** | [Pydantic Settings](https://docs.pydantic.dev/latest/concepts/pydantic_settings/) | ≥2.13.1 | Type-safe environment configuration |
-| **LLM Inference** | [Ollama](https://ollama.com) | ≥0.6.1 | Local model hosting (OpenAI-compatible API) |
-| **HTTP Client** | [httpx](https://www.python-httpx.org) | ≥0.28.1 | Async HTTP requests (web search, APIs) |
-| **Frontend** | [React](https://react.dev) 19 + [Vite](https://vite.dev) 8 | — | Modern SPA with HMR |
-| **State Management** | [Zustand](https://github.com/pmndrs/zustand) | 5.0.12 | Lightweight React state |
-| **UI Components** | [Lucide React](https://lucide.dev) | 1.8.0 | Consistent iconography |
-| **Routing** | [React Router DOM](https://reactrouter.com) | 7.14.2 | Client-side SPA routing |
-| **Animations** | [Framer Motion](https://www.framer.com/motion) | 12.38.0 | Page/component transitions |
-| **Markdown** | [marked](https://marked.js.org) | 18.0.0 | Secure message rendering |
+| **Agent Framework** | [OpenAI Agents SDK](https://github.com/openai/openai-agents-python) | >=0.13.6 | Streaming via `Runner.run_streamed()`; handoffs for routing; guardrails for validation; HITL via `@function_tool(needs_approval=True)` |
+| **Backend API** | [FastAPI](https://fastapi.tiangolo.com) + [Uvicorn](https://www.uvicorn.org) | >=0.135.3 + >=0.44.0 | ASGI server; WebSocket streaming; dependency injection for DB sessions; lifespan handler for ORM table creation |
+| **Database Access** | [SQLModel](https://sqlmodel.tiangolo.com) + raw SQL (hybrid) | >=0.0.38 | SQLModel for conversation/message persistence; raw DDL (`schema.sql`) + psycopg2 `RealDictCursor` for 21 business tables |
+| **Database Driver** | [psycopg2](https://www.psycopg.org) | >=2.9.11 | `RealDictCursor` for dict-row mappings; `psycopg2.extras.Json` for JSONB inserts |
+| **DB Access Protocol** | [MCP PostgreSQL Server](https://github.com/modelcontextprotocol/servers) | npx | `MCPServerStdio` with 30s session timeout; per-request factory pattern |
+| **Authentication** | [bcrypt](https://github.com/pyca/bcrypt) + [PyJWT](https://github.com/jpadilla/pyjwt) | >=5.0.0 + >=2.12.1 | bcrypt password hashing; HS256 JWT with 7-day expiry |
+| **Configuration** | [Pydantic Settings](https://docs.pydantic.dev/latest/concepts/pydantic_settings/) | >=2.13.1 | `BaseSettings` with `SettingsConfigDict(env_file=".env")`; computed properties for `SQLALCHEMY_DATABASE_URI` |
+| **LLM Inference** | [Ollama](https://ollama.com) | >=0.6.1 | OpenAI-compatible `AsyncOpenAI` client with shared connection pool |
+| **HTTP Client** | [httpx](https://www.python-httpx.org) | >=0.28.1 | Async HTTP for Tavily search, currency conversion, webhook delivery |
+| **Frontend** | [React](https://react.dev) 19 + [Vite](https://vite.dev) 8 | -- | TypeScript 6.0 strict mode; `@vitejs/plugin-react` with SWC |
+| **State Management** | [Zustand](https://github.com/pmndrs/zustand) | 5.0.12 | Single store with `create<ChatStore>()`; action-based updates |
+| **Routing** | [React Router DOM](https://reactrouter.com) | 7.14.2 | `BrowserRouter` with `Routes` for landing/login/docs/chat |
+| **Animation** | [Framer Motion](https://www.framer.com/motion) | 12.38.0 | Orchestrated page transitions; `AnimatePresence` for feature card cycling |
+| **Icons** | [Lucide React](https://lucide.dev) | 1.8.0 | Agent-specific icons mapped via `AGENT_CONFIG` color dictionary |
+| **Markdown** | [marked](https://marked.js.org) | 18.0.0 | Client-side parsing with `breaks: true, gfm: true` |
 
 ---
 
 ## Database Schema
 
-**26 tables organized into 5 logical domains** with comprehensive seed data simulating a real SaaS customer support platform.
+21 tables organized across 5 logical domains with 15+ composite indexes and comprehensive seed data (1500+ rows) simulating a real SaaS customer support platform spanning 10 companies across 4 regions.
 
 ### Domain Map
 
-```
-🗣️  Conversation State (2 tables)
-    conversations, messages
-    → Core chat persistence with token/latency tracking
+**Conversation State (2 tables)**
+- `conversations`, `messages`
+- Core chat persistence with token/latency tracking
 
-👥  Customer Data (4 tables)
-    customers, customer_contacts, subscriptions, products
-    → Multi-contact per customer, tiered subscription model
+**Customer Data (6 tables)**
+- `customers`, `customer_contacts`, `products`, `subscriptions`, `api_usage`, `feature_flags`
+- Multi-contact per customer; tiered subscription model; granular usage tracking
 
-🔐  Authentication (1 table)
-    customer (FastAPI Auth model with hashed_password)
-    → bcrypt-hashed credentials, JWT token generation
+**Billing & Payments (4 tables)**
+- `invoices`, `invoice_line_items`, `payments`, `refunds`
+- Full billing lifecycle with refund chain and multi-currency support (PKR, AED)
 
-💰  Billing & Payments (6 tables)
-    invoices, invoice_line_items, payments, refunds, api_usage, feature_flags
-    → Full billing lifecycle with refund chains
+**Support & Operations (5 tables)**
+- `support_tickets`, `ticket_comments`, `knowledge_articles`, `escalations`, `notifications_log`
+- Complete support operations with SLA tracking, knowledge base, and notifications
 
-⚙️  Operational Systems (13 tables)
-    support_tickets, ticket_comments, knowledge_articles
-    escalations, notifications_log, agents_config
-    security_events, audit_logs, feedback
-    → Complete support operations with security auditing
-```
-
-### Key Design Patterns
-
-- **Composite primary keys**: Invoices use `VARCHAR(20)` with format `INV-YYYY-NNNN` for human-readable identifiers
-- **JSONB columns**: `features`, `details`, `tool_calls` use PostgreSQL JSONB for flexible schema
-- **Array columns**: `tags` uses `TEXT[]` for efficient categorization
-- **CHECK constraints**: `feedback.rating` and `feedback.nps_score` have range validation
-- **Indexed foreign keys**: 15+ composite indexes on high-query columns
+**Security & Audit (4 tables)**
+- `security_events`, `audit_logs`, `feedback`, `agents_config`
+- Immutable audit trail; NPS/CSAT tracking; agent configuration registry; hallucination risk scoring
 
 ### Entity Relationships
 
 ```
-customers ──┬── customer_contacts (1:N)
-             ├── subscriptions (1:N)
-             ├── invoices (1:N)
-             ├── api_usage (1:N)
-             ├── feature_flags (1:N)
-             ├── support_tickets (1:N)
-             ├── feedback (1:N)
-             └── conversations (1:N)
+customers ------ customer_contacts (1:N, ON DELETE CASCADE)
+             |--- subscriptions (1:N)
+             |--- invoices (1:N)
+             |--- api_usage (1:N)
+             |--- feature_flags (1:N, UNIQUE per customer+feature)
+             |--- support_tickets (1:N)
+             |--- feedback (1:N, CHECK rating 1-5, nps_score 0-10)
+             |--- conversations (1:N)
 
-subscriptions ── products (N:1)
-invoices ──┬── invoice_line_items (1:N)
-           └── payments (1:N) ── refunds (1:N)
+subscriptions --- products (N:1)
+invoices --- invoice_line_items (1:N, ON DELETE CASCADE)
+         |--- payments (1:N) --- refunds (1:N)
 
-support_tickets ──┬── ticket_comments (1:N)
-                  └── escalations (1:N)
+support_tickets --- ticket_comments (1:N, ON DELETE CASCADE, author_type discriminator)
+                  |--- escalations (1:N)
 
-audit_logs ── conversations (N:1)
-conversations ── messages (1:N)
+conversations --- messages (1:N)
 ```
 
-### Seed Data Overview
+<details>
+<summary>Key table DDL schemas</summary>
 
-The `seed.sql` contains realistic data for:
-- **10 customers** across healthcare, fintech, gaming, logistics, edtech, and more
-- **14 contacts** with roles (CTO, CIO, CISO, CEO) in multiple timezones
-- **4 product tiers** (Free → Enterprise Plus) with granular feature flags
-- **12 invoices** with payment/refund chains showing paid, overdue, and pending states
-- **9 support tickets** with SLA deadlines, CSAT scores, and escalation chains
-- **16 security events** including login failures, account locks, 2FA verification
-- **12 knowledge articles** across API, SDK, security, billing, and deployment categories
-- **8 audit logs** with hallucination risk scores and quality metrics
+**customers -- Core Business Entity**
+```sql
+CREATE TABLE customers (
+    id              SERIAL PRIMARY KEY,
+    company_name    VARCHAR(200) NOT NULL,
+    industry        VARCHAR(100),
+    company_size    VARCHAR(50),           -- '1-10', '11-50', '51-200', '201-500', '500+'
+    region          VARCHAR(100),
+    status          VARCHAR(20) DEFAULT 'active',
+    health_score    INTEGER DEFAULT 70,
+    mrr             DECIMAL(12,2) DEFAULT 0,
+    created_at      TIMESTAMP DEFAULT NOW()
+);
+```
+
+**customer_contacts -- Multi-Contact with Security State**
+```sql
+CREATE TABLE customer_contacts (
+    id                  SERIAL PRIMARY KEY,
+    customer_id         INTEGER REFERENCES customers(id) ON DELETE CASCADE,
+    name                VARCHAR(200) NOT NULL,
+    email               VARCHAR(255) UNIQUE NOT NULL,
+    role                VARCHAR(100),
+    is_primary          BOOLEAN DEFAULT false,
+    last_login          TIMESTAMP,
+    login_failures      INTEGER DEFAULT 0,
+    account_locked      BOOLEAN DEFAULT false,
+    two_factor_enabled  BOOLEAN DEFAULT false,
+    two_factor_method   VARCHAR(20),       -- totp, sms, email
+);
+```
+
+**support_tickets -- SLA-Bound Ticket Management**
+```sql
+CREATE TABLE support_tickets (
+    id                VARCHAR(20) PRIMARY KEY, -- TKT-XXXXX
+    customer_id       INTEGER REFERENCES customers(id),
+    category          VARCHAR(30) NOT NULL,
+    priority          VARCHAR(5) NOT NULL,     -- P1, P2, P3, P4
+    status            VARCHAR(20) DEFAULT 'open',
+    assigned_to       VARCHAR(100),
+    sla_deadline      TIMESTAMP,
+    satisfaction      INTEGER,                -- 1-5 CSAT
+    tags              TEXT[],                 -- PostgreSQL array column
+);
+```
+
+**audit_logs -- Immutable Agent Audit Trail**
+```sql
+CREATE TABLE audit_logs (
+    id                  SERIAL PRIMARY KEY,
+    conversation_id     VARCHAR(50),
+    agent_name          VARCHAR(100) NOT NULL,
+    action              VARCHAR(50) NOT NULL,
+    input_summary       TEXT,
+    output_summary      TEXT,
+    hallucination_risk  VARCHAR(10),          -- low, medium, high
+    policy_compliant    BOOLEAN DEFAULT true,
+    quality_score       INTEGER,             -- 0-100
+    latency_ms          INTEGER,
+    tokens_used         INTEGER,
+);
+```
+</details>
+
+### Seed Data Profile
+
+| Table | Rows | Notable Characteristics |
+|---|---|---|
+| `customers` | 10 | Active (6), Churned (1), Suspended (1), Trial (1), 2 Enterprise Plus customers |
+| `customer_contacts` | 14 | 8 primary contacts; 3 locked accounts; 5 with 2FA enabled (TOTP/SMS/Email) |
+| `products` | 4 | Free (PKR 0), Pro (PKR 4.9K), Enterprise (PKR 29.9K), Enterprise Plus (PKR 89.9K) |
+| `invoices` | 12 | 2 overdue (DataPulse + LogiTrack); multi-currency (PKR, AED) |
+| `payments` | 9 | 1 refunded (REF-00001); methods: visa/mastercard/bank_transfer |
+| `support_tickets` | 9 | 3 open; 2 in_progress; 1 critical escalation (ESC-00001) |
+| `knowledge_articles` | 12 | 3.4K views on SDK setup; topics: API/SDK/Security/Billing/Deployment |
+| `security_events` | 16 | Login failures, account locks, 2FA verifications, suspicious activity |
+| `audit_logs` | 7 | Quality scores 88-96; hallucination risk all "low"; AI feedback sample data |
 
 ---
 
@@ -384,49 +408,59 @@ The `seed.sql` contains realistic data for:
 
 ### Three-Layer Input Validation
 
-Three `InputGuardrail` functions execute **before** any agent processes incoming messages:
+Three `@input_guardrail` functions execute in sequence **before** any agent processes incoming messages. If any guardrail triggers, execution is halted and the `InputGuardrailTripwireTriggered` exception propagates to the orchestrator.
+
+| Layer | Detection Method | Examples |
+|---|---|---|
+| **1. Jailbreak** | Pattern matching against 10+ injection patterns | `"ignore your instructions"`, `"DAN mode"`, `"system prompt"` |
+| **2. PII** | Regex scanning for sensitive data | Credit card numbers (Luhn-checkable), US SSNs |
+| **3. SQL Injection** | Keyword blacklist | `DROP TABLE`, `DELETE FROM`, `OR 1=1`, `UNION SELECT` |
+
+<details>
+<summary>Guardrail implementation examples</summary>
 
 ```python
-# shared/guardrails/safety.py
+# PII Detection
+re.search(r'\b\d{4}[- ]?\d{4}[- ]?\d{4}[- ]?\d{4}\b', text)  # Credit cards
+re.search(r'\b\d{3}-\d{2}-\d{4}\b', text)  # SSNs
 
-@input_guardrail(name="Jailbreak Detector")
-async def detect_jailbreak(ctx, agent, input):
-    """Pattern matching on override/injection phrases."""
-    patterns = ["ignore your instructions", "DAN mode", "<|im_start|>", ...]
-    # Returns GuardrailFunctionOutput(tripwire_triggered=True/False)
-
-@input_guardrail(name="PII Detector")
-async def detect_pii(ctx, agent, input):
-    """Regex patterns for CC numbers and SSNs."""
-    # re.search(r'\b\d{4}[- ]?\d{4}[- ]?\d{4}[- ]?\d{4}\b', text)
-    # re.search(r'\b\d{3}-\d{2}-\d{4}\b', text)
-
-@input_guardrail(name="SQL Injection Detector")
-async def detect_sql_injection(ctx, agent, input):
-    """Keyword matching for SQL injection attempts."""
-    patterns = ["DROP TABLE", "DELETE FROM", "OR 1=1", "UNION SELECT", ...]
+# SQL Injection Detection
+patterns = ["DROP TABLE", "DELETE FROM", "'; --", "OR 1=1", "UNION SELECT"]
 ```
-
-### Guardrail Isolation Protocol
-
-1. Guardrail triggers → `InputGuardrailTripwireTriggered` exception raised
-2. Exception caught in `run_chat_stream()` — user message **not** persisted
-3. Assistant message stored with `agent_name = "Guardrail"`
-4. History reconstruction filters `WHERE agent_name != 'Guardrail'`
-5. Subsequent clean messages never re-trigger on blocked content
+</details>
 
 ### Output Validation
 
-`check_response_length` — blocks responses exceeding 3000 characters (cost/quality control):
+A single output guardrail enforces a 3000-character response limit for cost/quality control.
 
-```python
-@output_guardrail(name="Response Length Check")
-async def check_response_length(ctx, agent, output):
-    if len(str(output)) > 3000:
-        return GuardrailFunctionOutput(tripwire_triggered=True,
-            output_info=f"Response too long: {len(str(output))} chars")
-    return GuardrailFunctionOutput(tripwire_triggered=False, output_info="OK")
+### Guardrail Isolation Protocol
+
 ```
+User sends message
+       |
+       v
+  [InputGuardrail 1: Jailbreak]
+  [InputGuardrail 2: PII]           -- All pass --> Agent processes
+  [InputGuardrail 3: SQL Injection]
+          |
+          v Triggered
+  ------------------------
+  Exception caught
+  User message NOT saved to DB
+  Guardrail response saved only
+  Error event emitted to client
+```
+
+### Post-Processing Policy Compliance
+
+The Audit Agent's `check_policy_compliance` tool scans responses for:
+
+| Check | Detection Pattern |
+|---|---|
+| PII exposure | Full CC number or SSN in response |
+| Unauthorized promises | "guarantee", "100% uptime", "free upgrade" |
+| Competitor mentions | "zendesk", "intercom", "freshdesk" |
+| Refund policy violation | "refund" without "approved" in context |
 
 ---
 
@@ -435,121 +469,174 @@ async def check_response_length(ctx, agent, output):
 ### Architecture
 
 ```
-┌─────────────────────┐     ┌───────────────────────┐
-│  MCPServerStdio     │────▶│  npx -y               │
-│  (Per-Request)      │     │  @modelcontextprotocol │
-│                     │     │  /server-postgres      │
-│  timeout: 30s       │     │  <connection_string>   │
-└─────────────────────┘     └───────────┬───────────┘
-                                        │
-                                        ▼
-                               ┌──────────────────┐
-                               │   PostgreSQL 14+  │
-                               │   actuator_ai DB  │
-                               └──────────────────┘
-```
-
-### Lifecycle Management
-
-```python
-# backend/services/agent_service.py — Lifecycle pattern
-
-async def run_chat_stream(...):
-    mcp = create_mcp_postgres()
-    await mcp.connect()          # Phase 1: Initialize
-    
-    for ag in _ALL_AGENTS:
-        ag.mcp_servers = [mcp]   # Phase 2: Assign to all agents
-    
-    try:
-        result = Runner.run_streamed(supervisor, input_list, ...)
-        # ... stream events ...
-    finally:
-        for ag in _ALL_AGENTS:
-            ag.mcp_servers = []  # Phase 3: Clear references
-        await mcp.cleanup()      # Phase 4: Graceful shutdown
++---------------------+     WS transport     +-----------------------+
+|  MCPServerStdio     |<-------------------->|  npx -y               |
+|  (Per-Request)      |                      |  @modelcontextprotocol|
+|                     |                      |  /server-postgres     |
+|  session_timeout:   |                      |           |           |
+|  30.0s              |                      |           |           |
++---------------------+                      |     TCP/5432          |
+                                              |           |           |
+                                              +-----------+-----------+
+                                                          |
+                                                          v
+                                                 +------------------+
+                                                 |   PostgreSQL 14+ |
+                                                 |   actuator_ai DB |
+                                                 +------------------+
 ```
 
 ### Why Per-Request Isolation?
 
-The OpenAI Agents SDK's `MCPServerStdio` has an internal state machine for `connect/disconnect`. When agent handoffs occur mid-conversation, sharing a single MCP instance between multiple agents causes race conditions on the MCP lifecycle. The factory pattern guarantees each request gets an isolated MCP instance with a clean state.
+The `MCPServerStdio` class manages an internal state machine: `CREATED -> CONNECTED -> CLEANED`. When agent A hands off to agent B mid-conversation, the SDK internally manages the MCP lifecycle. If agents A and B share the same instance, concurrent lifecycle calls race -- one agent's `connect()` while another's `cleanup()` is in progress produces "Server not initialized" errors. The factory pattern guarantees each request gets an isolated MCP instance with a clean state.
+
+### Tool Registration
+
+Each agent's MCP server provides a `query` tool that executes read-only SQL. The tool is registered implicitly when `ag.mcp_servers = [mcp]` is set. Agent system prompts instruct using `query` for all database access rather than inventing data.
 
 ---
 
 ## Human-in-the-Loop (HITL) Workflows
 
-### Approval-Based Workflow Interruption
+The `process_refund` tool uses the SDK's `needs_approval=True` parameter to trigger an interruption workflow:
 
-The `process_refund` tool uses `@function_tool(needs_approval=True)` to trap execution mid-chain:
+1. Agent calls `process_refund` during streaming
+2. SDK yields an interruption event
+3. FastAPI catches the interruption and sends `"done"` event with `needs_approval: true`
+4. Frontend displays an amber warning banner
+5. User approves via `state.approve(interruption)`
+6. SDK resumes execution
+7. Refund is completed and persisted
+
+<details>
+<summary>process_refund tool implementation</summary>
 
 ```python
 @function_tool(needs_approval=True)
 def process_refund(email: str, invoice_id: str, amount: float, reason: str) -> str:
-    """Process a refund. REQUIRES MANAGER APPROVAL."""
+    # Look up payment for the invoice
+    # Look up customer ID
     # Create refund record with status='pending'
-    return f"Refund {refund_id}: Pending approval"
+    return f"Refund {refund_id}: Pending approval. Approved amount: PKR {amount:,.0f}"
 ```
 
-### HITL Flow
+Resuming execution:
 
+```python
+state = result.to_state()
+for i in result.interruptions:
+    answer = input(f"Approve '{i.raw_item.name}'? (y/n): ")
+    if answer == "y":
+        state.approve(i)
+result = await Runner.run(agent, state)
 ```
-1. Agent calls process_refund(email, invoice, amount, reason)
-2. SDK yields result.interruptions → FastAPI catches this
-3. API returns to frontend:
-   {
-     "needs_approval": true,
-     "approval_items": ["process_refund"]
-   }
-4. Frontend displays amber warning banner with approval prompt
-5. Human supervisor approves via Runner state resumption:
-   state = result.to_state()
-   state.approve(interruption)
-   result = await Runner.run(supervisor, state)
-6. Execution continues with refund processing
-```
+</details>
 
 ---
 
 ## Model Inference Architecture
 
-### Supported Providers
+### Provider Abstraction Layer
 
-| Provider | Backend | Use Case | Configuration |
-|---|---|---|---|
-| **Ollama** | `AsyncOpenAI` (OpenAI-compatible) | Local inference (default) | `OLLAMA_BASE_URL`, `OLLAMA_MODEL` |
-| **Groq** | `AsyncOpenAI` | Fast cloud inference | `GROQ_API_KEY` |
-| **OpenAI** | Native SDK model string | Cloud inference | `OPENAI_API_KEY` |
-| **LiteLLM** | `LitellmModel` | 100+ provider gateway | Provider-specific |
+The `shared/models/` package provides a clean provider abstraction via factory functions, each returning a model compatible with `Agent(model=...)`:
 
-### Shared Client & Connection Pooling
+| Provider | Use Case |
+|---|---|
+| `shared.models.ollama_provider` | Local inference (default) |
+| `shared.models.groq_provider` | Fast cloud inference |
+| `shared.models.openai_provider` | OpenAI cloud models |
+| `shared.models.litellm_provider` | 100+ provider gateway |
 
-All agents use a shared, lazily-initialized `AsyncOpenAI` client for connection pooling:
+All agents share a lazily-initialized `AsyncOpenAI` client for connection reuse. Switch providers by changing a single import line.
 
-```python
-# shared/models/ollama_provider.py
-_client = None
-
-def _get_client() -> AsyncOpenAI:
-    global _client
-    if _client is None:
-        _client = AsyncOpenAI(base_url=OLLAMA_BASE_URL, api_key="ollama")
-    return _client
-
-def get_model(model_name: str | None = None) -> OpenAIChatCompletionsModel:
-    return OpenAIChatCompletionsModel(
-        model=model_name or OLLAMA_DEFAULT_MODEL,
-        openai_client=_get_client(),
-    )
-```
-
-### Recommended Models
+### Recommended Models for Tool-Calling
 
 | Model | Strength | Provider |
 |---|---|---|
-| `deepseek-v3.1:671b-cloud` | Strongest tool calling, agentic chains | Ollama Cloud |
-| `gpt-oss:120b-cloud` | GPT architecture, native tool schema | Ollama Cloud |
-| `qwen3-coder:480b-cloud` | Structured output & code reasoning | Ollama Cloud |
-| `qwen2.5:7b` | Lightweight default for local inference | Local Ollama |
+| `deepseek-v3.1:671b-cloud` | Strongest tool calling, agentic chains, handoff routing | Ollama Cloud |
+| `gpt-oss:120b-cloud` | GPT architecture with native tool schema support | Ollama Cloud |
+| `qwen3-coder:480b-cloud` | Structured output, code reasoning, SQL generation | Ollama Cloud |
+| `qwen2.5:7b` | Lightweight default for local inference; good tool support | Local Ollama |
+
+---
+
+## Authentication & Authorization
+
+### JWT-Based Authentication
+
+Stateless JWT tokens with bcrypt password hashing. **Warning**: The `SECRET_KEY` must be set via environment variable in production -- the fallback default is insecure.
+
+<details>
+<summary>Authentication configuration</summary>
+
+```python
+SECRET_KEY = getattr(settings, 'SECRET_KEY', None)
+if not SECRET_KEY:
+    raise RuntimeError("SECRET_KEY must be set in environment")
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7 days
+```
+</details>
+
+### Endpoints
+
+| Method | Endpoint | Request Body | Response | Effect |
+|---|---|---|---|---|
+| `POST` | `/api/v1/auth/signup` | `{email, password, name?}` | `{access_token, token_type, email, name}` | Creates user or claims legacy account |
+| `POST` | `/api/v1/auth/login` | `{email, password}` | `{access_token, token_type, email, name}` | Validates credentials, returns token |
+
+### Token Payload
+
+```json
+{
+  "sub": "user@example.com",
+  "exp": 1748300000
+}
+```
+
+---
+
+## Frontend Architecture
+
+The project ships **two UI implementations**:
+
+| UI | Location | Purpose |
+|---|---|---|
+| **React 19 SPA** (Primary) | `frontend/` | Main customer-facing interface with agent chat, landing page, authentication, and documentation. Bundled via Vite. |
+| **Static HTML** (Fallback) | `backend/static/index.html` | Standalone UI with inline CSS/JS served directly from FastAPI at root path. Used when React frontend has not been built or for quick deployment. |
+
+### Component Tree (React SPA)
+
+```
+<BrowserRouter>
+  <Routes>
+    <Route path="/" element={<ChatApp> | <LandingPage>} />
+    <Route path="/login" element={<EnhancedAuth>} />
+    <Route path="/docs" element={<Docs>} />
+  </Routes>
+</BrowserRouter>
+```
+
+### State Management (Zustand)
+
+The `ChatStore` interface manages: user auth state, message array with streaming flag, conversation UUID, WebSocket loading state, and active agent tracking. Actions: `setUser`, `addMessage`, `updateLastMessage`, `setConversationId`, `setActiveAgent`, `clear`.
+
+### WebSocket Client Protocol
+
+The `streamMessage()` function in `api.ts` implements the full duplex protocol:
+
+1. Add user message to store
+2. Create placeholder assistant message with `isStreaming: true`
+3. Open WebSocket to `ws://host/api/v1/chat/ws`
+4. On `conv_id` event: store conversation UUID
+5. On `content` event: accumulate text, update last message in-place
+6. On `agent_update` event: seal current message, create new assistant message
+7. On `done` event: finalize message, close WebSocket
+8. On `error` event: append error content, close WebSocket
+
+### Agent Color Configuration
+
+Each of the 8 agents plus Guardrail and System have unique color + icon mappings (via Lucide React icons) used for visual differentiation in the chat UI.
 
 ---
 
@@ -557,164 +644,94 @@ def get_model(model_name: str | None = None) -> OpenAIChatCompletionsModel:
 
 ### Prerequisites
 
-- **PostgreSQL 14+** with database `actuator_ai`
-- **Python 3.11+** with [`uv`](https://docs.astral.sh/uv/) package manager
-- **Node.js 18+** and **npm** (frontend development)
-- **Ollama** running locally with target model pulled
-- **Redis** (optional, for production session storage)
+- **PostgreSQL 14+** -- Create database `actuator_ai` and apply schema + seed
+- **Python 3.11+** -- Package management via `uv` (Astral)
+- **Node.js 18+** -- Frontend build tooling
+- **Ollama** -- Running locally with target model pulled (`ollama pull qwen2.5:7b`)
+- **npx** (ships with Node.js) -- Required by MCP PostgreSQL server
 
-### Installation
+### Quick Start
 
 ```bash
-# 1. Clone the repository
+# 1. Clone & enter repository
 git clone https://github.com/PatheticUser/agentic-ai-hub.git
 cd actuator-ai
 
-# 2. Create Python virtual environment with uv
+# 2. Create virtual environment & install Python dependencies
 uv venv
-source .venv/bin/activate  # Linux/macOS
-# .venv\Scripts\activate   # Windows
-
-# 3. Install backend dependencies
+source .venv/bin/activate   # Linux/macOS
 uv pip install -e .
 
-# 4. Set up the database
+# 3. Set up database
 psql -U postgres -c "CREATE DATABASE actuator_ai;"
 psql -U postgres -d actuator_ai -f backend/db/schema.sql
 psql -U postgres -d actuator_ai -f backend/db/seed.sql
 
-# 5. Install frontend dependencies
-cd frontend
-npm install
-cd ..
+# 4. Install frontend dependencies
+cd frontend && npm install && cd ..
 
-# 6. Configure environment
-# Create .env from the template below and edit with your configuration
-```
+# 5. Configure environment
+cp .env.example .env
+# Edit .env with your credentials
 
-### Environment Configuration
-
-```env
-# ── Ollama Inference ──────────────────────────
-OLLAMA_BASE_URL=http://localhost:11434/v1
-OLLAMA_MODEL=deepseek-v3.1:671b-cloud
-
-# ── PostgreSQL Database ───────────────────────
-POSTGRES_SERVER=localhost
-POSTGRES_PORT=5432
-POSTGRES_USER=postgres
-POSTGRES_PASSWORD=postgres
-POSTGRES_DB=actuator_ai
-
-# ── Application Settings ──────────────────────
-PROJECT_NAME=Actuator AI
-API_V1_STR=/api/v1
-SECRET_KEY=your-secret-key-here  # Generate with: openssl rand -hex 32
-
-# ── Optional Services ─────────────────────────
-# REDIS_URL=redis://localhost:6379
-# GROQ_API_KEY=gsk_...
-# OPENAI_API_KEY=sk-...
-# SENDGRID_API_KEY=SG....
-# SLACK_WEBHOOK_URL=https://hooks.slack.com/...
-# TAVILY_API_KEY=tvly-...
-```
-
-### Running the Application
-
-#### Unified Script (Recommended)
-
-```bash
+# 6. Run (both servers)
 ./run.sh   # Linux/macOS
-# or
 run.bat    # Windows
 ```
 
-#### Manual Development Mode
+### Manual Development Mode
 
 ```bash
-# Terminal 1: Backend (serves API + static UI)
+# Terminal 1: Backend
 uv run uvicorn backend.main:app --host 127.0.0.1 --port 8000 --reload
 
-# Terminal 2: Frontend (Vite dev server with HMR)
-cd frontend
-npm run dev
+# Terminal 2: Frontend (with HMR + API proxy)
+cd frontend && npm run dev
 ```
 
-#### Production Mode
+### Production Build
 
 ```bash
-cd frontend
-npm run build
-cd ..
+cd frontend && npm run build && cd ..
 uv run uvicorn backend.main:app --host 0.0.0.0 --port 8000
 ```
-
-### Access Points
-
-| Service | URL | Description |
-|---|---|---|
-| Frontend (Dev) | http://localhost:5173 | Vite development server with hot reload |
-| Static Portal | http://127.0.0.1:8000 | Production UI served by FastAPI |
-| API Docs | http://127.0.0.1:8000/docs | OpenAPI/Swagger interactive docs |
-| Health Check | http://127.0.0.1:8000/health | System status endpoint |
 
 ---
 
 ## API Reference
 
-### WebSocket Chat Endpoint
+### WebSocket: `/api/v1/chat/ws`
 
-```
-WS /api/v1/chat/ws
-```
-
-#### Connection Flow
-
-1. Client opens WebSocket to `/api/v1/chat/ws`
-2. Server accepts connection
-3. Client sends initial message:
+**Connection**: Client sends first message as JSON:
 ```json
 {
-  "message": "I need help with my invoice INV-2026-0401",
+  "message": "I need help with my invoice",
   "conversation_id": null,
   "customer_email": "ahmed@techvista.pk"
 }
 ```
-4. Server processes and streams response events
 
-#### Stream Events
-
-```json
-// conv_id — Conversation assigned
+**Response Stream** (JSON events, one per line):
+```
 {"type": "conv_id", "conversation_id": "abc-123-def"}
-
-// content — Streaming response tokens
-{"type": "content", "agent_name": "Supervisor Router", "content": "Let me..."}
-
-// agent_update — Handoff to specialist
+{"type": "content", "agent_name": "Supervisor Router", "content": "Let me check..."}
 {"type": "agent_update", "agent_name": "Billing Finance Agent"}
-
-// done — Stream complete
-{"type": "done", "agent_name": "Billing Finance Agent",
- "needs_approval": false, "approval_items": []}
-
-// error — Processing failure
-{"type": "error", "content": "Error message", "agent_name": "System"}
+{"type": "content", "agent_name": "Billing Finance Agent", "content": "I found invoice..."}
+{"type": "done", "agent_name": "Billing Finance Agent", "needs_approval": false, "approval_items": []}
 ```
 
 ### REST Endpoints
 
-| Method | Path | Description | Auth |
-|---|---|---|---|
-| `GET` | `/api/v1/agents/` | List all registered agents | No |
-| `GET` | `/api/v1/agents/{key}` | Get agent details | No |
-| `POST` | `/api/v1/auth/signup` | Create account | No |
-| `POST` | `/api/v1/auth/login` | Authenticate | No |
-| `GET` | `/api/v1/chat/conversations` | List conversations | No |
-| `GET` | `/api/v1/chat/conversations/{id}/messages` | Get messages | No |
-| `GET` | `/health` | System health check | No |
-| `GET` | `/` | Static UI (production) | No |
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/v1/agents/` | List all 8 agents with metadata |
+| `GET` | `/api/v1/agents/{key}` | Agent details: name, description, tools |
+| `POST` | `/api/v1/auth/signup` | Account registration |
+| `POST` | `/api/v1/auth/login` | Authentication |
+| `GET` | `/api/v1/chat/conversations?status=&limit=` | List conversations |
+| `GET` | `/api/v1/chat/conversations/{id}/messages` | Get conversation messages |
+| `GET` | `/health` | System health: status, version, agent count |
+| `GET` | `/` | Serve production static UI |
 
 ---
 
@@ -722,133 +739,107 @@ WS /api/v1/chat/ws
 
 ```
 actuator-ai/
-│
-├── actuator_agents/                    # 8 specialist agents
-│   ├── supervisor_router/agent.py      # Central orchestrator
-│   ├── technical_specialist/agent.py   # API/SDK issue resolution
-│   ├── account_security/agent.py       # Auth & profile management
-│   ├── billing_finance/agent.py        # Payments & subscriptions
-│   ├── success_retention/agent.py      # Health & churn prevention
-│   ├── operations_sync/agent.py        # CRM & Jira integration
-│   ├── linguistic/agent.py             # Translation & sentiment
-│   └── audit/agent.py                  # QA & compliance
-│
-├── backend/                            # FastAPI application
-│   ├── api/
-│   │   ├── routes/
-│   │   │   ├── chat.py                # WebSocket + REST chat endpoints
-│   │   │   ├── agents.py              # Agent listing/info endpoints
-│   │   │   └── auth.py                # Authentication endpoints
-│   │   └── schemas.py                 # Pydantic request/response models
-│   │
-│   ├── core/
-│   │   └── config.py                  # Pydantic Settings (env vars)
-│   │
-│   ├── db/
-│   │   ├── session.py                 # SQLModel database session
-│   │   ├── schema.sql                 # Full PostgreSQL DDL (26 tables)
-│   │   └── seed.sql                   # Realistic seed data
-│   │
-│   ├── models/
-│   │   ├── conversation.py            # SQLModel ORM models
-│   │   └── agent.py                   # Agent configuration model
-│   │
-│   ├── services/
-│   │   └── agent_service.py           # Agent orchestration engine
-│   │
-│   ├── static/
-│   │   └── index.html                 # Production static UI
-│   │
-│   └── main.py                        # FastAPI application entry point
-│
-├── frontend/                           # React SPA (Vite)
-│   └── src/
-│       ├── main.tsx                   # React entry + BrowserRouter
-│       ├── App.tsx                    # Main chat application
-│       ├── LandingPage.tsx            # Marketing landing page
-│       ├── EnhancedAuth.tsx           # Login/signup page
-│       ├── Docs.tsx                   # Documentation page
-│       ├── store.ts                   # Zustand state management
-│       ├── api.ts                     # WebSocket + REST client
-│       ├── index.css                  # Global styles + CSS variables
-│       ├── App.css                    # Chat application styles
-│       └── LandingPage.css            # Landing + auth page styles
-│
-├── shared/                             # Cross-component utilities
-│   ├── guardrails/
-│   │   └── safety.py                  # 3 input + 1 output guardrails
-│   ├── models/
-│   │   ├── ollama_provider.py         # Ollama inference provider
-│   │   ├── groq_provider.py           # Groq cloud provider
-│   │   ├── openai_provider.py         # OpenAI provider
-│   │   └── litellm_provider.py        # LiteLLM multi-provider
-│   ├── schemas/
-│   │   └── common.py                  # Shared Pydantic models
-│   └── tools/
-│       ├── db_tools.py                # 15+ database query tools
-│       ├── math_tools.py              # Calculation + currency tools
-│       ├── time_tools.py              # Timezone conversion tools
-│       ├── web_tools.py               # Web search + URL fetch tools
-│       └── notification_tools.py      # Email/Slack/webhook tools
-│
-├── .env.example                       # Environment variable template
-├── pyproject.toml                     # Python dependencies (managed via uv)
-├── uv.lock                           # Locked dependency versions
-├── run.sh / run.bat                   # Unified startup scripts
-└── .env                              # Environment configuration (create from template below)
+|
++-- actuator_agents/                     # 8 OpenAI Agents SDK agents
+|   +-- supervisor_router/agent.py       # Central orchestrator + classifier
+|   +-- technical_specialist/agent.py    # API/SDK diagnostics
+|   +-- account_security/agent.py        # Auth + 2FA + unlock
+|   +-- billing_finance/agent.py         # Invoices + refunds (HITL)
+|   +-- success_retention/agent.py       # Health scores + churn
+|   +-- operations_sync/agent.py         # CRM + Jira + tickets
+|   +-- linguistic/agent.py              # Translation + sentiment
+|   +-- audit/agent.py                   # QA + compliance + hallucination
+|
++-- backend/                              # FastAPI application
+|   +-- api/
+|   |   +-- routes/
+|   |   |   +-- chat.py                  # WebSocket + REST chat
+|   |   |   +-- agents.py                # Agent listing/info
+|   |   |   +-- auth.py                  # JWT auth endpoints
+|   |   +-- schemas.py                   # Request/response Pydantic models
+|   +-- core/config.py                   # Pydantic Settings
+|   +-- db/
+|   |   +-- session.py                   # SQLModel engine + session
+|   |   +-- schema.sql                   # 21-table DDL
+|   |   +-- seed.sql                     # 1500+ rows seed data
+|   +-- models/
+|   |   +-- conversation.py              # SQLModel: Conversation, Message, Customer, SupportTicket
+|   |   +-- agent.py                     # Agent config model
+|   +-- services/
+|   |   +-- agent_service.py             # Agent orchestration engine
+|   +-- static/index.html                # Lightweight static HTML fallback UI
+|   +-- main.py                          # FastAPI entry point + lifespan
+|
++-- frontend/                             # React 19 + Vite 8 SPA (Primary UI)
+|   +-- src/
+|       +-- main.tsx                     # Entry + BrowserRouter
+|       +-- App.tsx                      # Main chat + agent badges
+|       +-- LandingPage.tsx              # Marketing page (framer-motion)
+|       +-- EnhancedAuth.tsx             # Login/signup with features
+|       +-- Docs.tsx                     # Documentation page
+|       +-- store.ts                     # Zustand state
+|       +-- api.ts                       # WebSocket + REST client
+|       +-- index.css                    # CSS variables + markdown styles
+|       +-- App.css                      # Chat UI layout + animations
+|       +-- LandingPage.css              # Landing + auth styles
+|
++-- shared/                               # Cross-component packages
+|   +-- guardrails/safety.py             # 3 input + 1 output guardrails
+|   +-- models/                          # LLM provider abstraction
+|   |   +-- ollama_provider.py           # Default: Ollama local
+|   |   +-- groq_provider.py             # Groq cloud inference
+|   |   +-- openai_provider.py           # OpenAI native
+|   |   +-- litellm_provider.py          # 100+ providers
+|   +-- schemas/common.py                # Shared Pydantic models
+|   +-- tools/
+|   |   +-- db_tools.py                  # 18 database query/write tools
+|   |   +-- math_tools.py                # Calculator + currency
+|   |   +-- time_tools.py                # Timezone + business hours
+|   |   +-- web_tools.py                 # Tavily search + URL fetch
+|   |   +-- notification_tools.py        # SendGrid + Slack + webhook
+|   +-- mcp_config.py                    # MCP server factory
+|
++-- .env.example                         # Environment template
++-- pyproject.toml                       # Python dependencies
++-- uv.lock                              # Locked dependency versions
++-- run.sh / run.bat                     # Unified startup scripts
++-- README.md                            # This file
 ```
 
 ---
 
 ## Development Workflow
 
-### Code Quality
+### Code Quality Commands
 
 ```bash
-# Python formatting
-uv run black .
-uv run isort .
+# Python
+uv run ruff check .       # Linting
+uv run black .            # Formatting
+uv run isort .            # Import sorting
+uv run mypy .             # Type checking (in progress)
 
-# Python type checking
-uv run mypy .
-
-# Python linting
-uv run ruff check .
-
-# Frontend formatting
-cd frontend && npm run format
-
-# Frontend linting
-cd frontend && npm run lint
+# Frontend
+cd frontend && npm run lint   # ESLint + TypeScript checking
 ```
 
 ### Testing
 
-> **Note**: Test suites are under development. Framework scaffolding is prepared in `pyproject.toml`.
-
 ```bash
-# Backend tests
-uv run pytest
-
-# Frontend tests
-cd frontend && npm test
+uv run pytest                   # Backend tests (scaffolding)
+cd frontend && npm test         # Frontend tests (scaffolding)
 ```
-
-### Git Workflow
-
-1. Fork the repository
-2. Create feature branch: `git checkout -b feature/feature-name`
-3. Commit changes: `git commit -m 'feat: add feature description'`
-4. Push: `git push origin feature/feature-name`
-5. Open Pull Request
 
 ---
 
 ## Production Deployment
 
-### Docker Compose
+### Docker Compose Reference
 
-> **Note**: You'll need to create a `Dockerfile` at the project root for the application service. Below is a reference docker-compose template for orchestrating the full stack.
+Note: The frontend is served from `backend/static/index.html` as the default static UI. To use the React SPA, build it separately (`cd frontend && npm run build`) and serve via a reverse proxy (Nginx/Caddy).
+
+<details>
+<summary>Docker Compose configuration</summary>
 
 ```yaml
 version: '3.8'
@@ -857,7 +848,7 @@ services:
     image: postgres:14
     environment:
       POSTGRES_DB: actuator_ai
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?err}
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./backend/db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
@@ -870,8 +861,7 @@ services:
 
   ollama:
     image: ollama/ollama:latest
-    ports:
-      - "11434:11434"
+    ports: ["11434:11434"]
     volumes:
       - ollama_data:/root/.ollama
     deploy:
@@ -883,89 +873,62 @@ services:
               capabilities: [gpu]
 
   app:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    ports:
-      - "8000:8000"
+    build: .
+    ports: ["8000:8000"]
     environment:
-      - POSTGRES_SERVER=postgres
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-      - OLLAMA_BASE_URL=http://ollama:11434/v1
-      - SECRET_KEY=${SECRET_KEY}
+      POSTGRES_SERVER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?err}
+      OLLAMA_BASE_URL: http://ollama:11434/v1
+      SECRET_KEY: ${SECRET_KEY:?err}
     depends_on:
-      postgres:
-        condition: service_healthy
-      ollama:
-        condition: service_started
+      postgres: { condition: service_healthy }
+      ollama: { condition: service_started }
 
 volumes:
   postgres_data:
   ollama_data:
 ```
+</details>
 
 ### Production Environment Variables
 
-```env
-# Required
-POSTGRES_SERVER=postgres
-POSTGRES_PASSWORD=<secure-random-password>
-OLLAMA_BASE_URL=http://ollama:11434/v1
-SECRET_KEY=<openssl rand -hex 32>
-
-# Optional
-REDIS_URL=redis://redis:6379
-SENTRY_DSN=https://<key>@o<org>.ingest.sentry.io/<project>
-```
-
----
-
-## Monitoring & Observability
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `POSTGRES_SERVER` | Yes | `localhost` | Database host |
+| `POSTGRES_PORT` | No | `5432` | Database port |
+| `POSTGRES_USER` | No | `postgres` | Database user |
+| `POSTGRES_PASSWORD` | Yes | -- | Database password |
+| `POSTGRES_DB` | No | `actuator_ai` | Database name |
+| `OLLAMA_BASE_URL` | Yes | `http://localhost:11434/v1` | Ollama endpoint |
+| `OLLAMA_MODEL` | No | `qwen2.5:7b` | Default inference model |
+| `SECRET_KEY` | **Yes** | -- | JWT signing key -- **must be set in production** (`openssl rand -hex 32`) |
+| `API_V1_STR` | No | `/api/v1` | API prefix |
 
 ### Health Check
 
 ```http
 GET /health
-
-Response:
+-> 200 OK
 {
   "status": "ok",
-  "project": "Actuator AI Prod",
+  "project": "Actuator AI",
   "version": "1.0.0",
   "agents": 8
 }
 ```
 
-### Key Metrics
-
-| Metric | Source | Description |
-|---|---|---|
-| Request latency (p50/p95/p99) | FastAPI middleware | End-to-end response time |
-| Agent handoff success rate | `audit_logs` | Supervisor routing accuracy |
-| Guardrail trigger count | `messages WHERE agent_name = 'Guardrail'` | Security incident frequency |
-| Database query performance | PostgreSQL `pg_stat_statements` | MCP query efficiency |
-| Token consumption | `audit_logs.tokens_used` | Per-agent LLM usage |
-| Quality scores | `audit_logs.quality_score` | Agent response quality |
-
-### Logging Architecture
-
-- Structured JSON logging via Python's `logging` module
-- Correlation IDs propagated through request lifecycle
-- Agent execution traces in `audit_logs` table
-- All tool calls logged with input/output summaries
-
 ---
 
 ## License
 
-This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
+MIT License. See `LICENSE` for full text.
 
 ---
 
 ## Acknowledgments
 
-- [OpenAI Agents SDK](https://github.com/openai/openai-agents-python) team — Multi-agent orchestration framework
-- [FastAPI](https://fastapi.tiangolo.com) community — High-performance async API framework
-- [Ollama](https://ollama.com) — Local LLM inference platform
-- [Model Context Protocol](https://modelcontextprotocol.io) working group — Standardized tool access protocol
-- [Lucide](https://lucide.dev) — Beautiful open-source icon library
+- **OpenAI Agents SDK** -- Multi-agent orchestration framework providing handoffs, guardrails, function tools, and streaming
+- **FastAPI** -- High-performance async Python API framework with WebSocket support
+- **Ollama** -- Local LLM inference platform with OpenAI-compatible API
+- **Model Context Protocol** -- Standardized protocol for tool access and database integration
+- **Lucide** -- Open-source icon library with consistent SVG-based design system
