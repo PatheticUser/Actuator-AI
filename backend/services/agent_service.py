@@ -81,6 +81,43 @@ def list_agents() -> list[dict]:
     ]
 
 
+import base64
+import io
+try:
+    from PIL import Image
+    import pytesseract
+    HAS_IMAGE_OCR = True
+except Exception:
+    HAS_IMAGE_OCR = False
+
+
+def extract_image_content(data_url: str) -> str:
+    """Extract dimensions, metadata, and full OCR text from image Data URL."""
+    try:
+        if "," in data_url:
+            _, b64_str = data_url.split(",", 1)
+        else:
+            b64_str = data_url
+
+        img_bytes = base64.b64decode(b64_str)
+        img = Image.open(io.BytesIO(img_bytes))
+        w, h = img.size
+
+        ocr_text = ""
+        if HAS_IMAGE_OCR:
+            try:
+                ocr_text = pytesseract.image_to_string(img).strip()
+            except Exception as e:
+                print(f"⚠ OCR note: {e}")
+
+        parts = [f"[Attached Image Resolution: {w}x{h} px]"]
+        if ocr_text:
+            parts.append(f"--- Visual Content & OCR Text Extracted from Attached Image ---\n{ocr_text}\n--- End Extracted Image Text ---")
+        return "\n".join(parts)
+    except Exception as e:
+        return f"[Image attached — size {len(data_url)} bytes]"
+
+
 async def run_chat_stream(
     message: str,
     conversation_id: str,
@@ -126,11 +163,12 @@ async def run_chat_stream(
             role = msg.role if msg.role in ("user", "assistant") else "user"
             input_list.append({"role": role, "content": msg.content})
 
-        # Add current message to the input — format as clean string for ModelScope compatibility
+        # Add current message with visual metadata & OCR text extraction
         if images:
-            img_desc_parts = [message or "Analyze the attached file(s)/image(s)."]
+            img_desc_parts = [message or "Please analyze the attached image/document."]
             for idx, img_data in enumerate(images, 1):
-                img_desc_parts.append(f"\n[Attachment #{idx}: Image/File attached — size {len(img_data)} bytes]")
+                extracted = extract_image_content(img_data)
+                img_desc_parts.append(f"\n[Attachment #{idx}]\n{extracted}")
             input_list.append({"role": "user", "content": "\n".join(img_desc_parts)})
         else:
             input_list.append({"role": "user", "content": message})
