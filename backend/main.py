@@ -29,11 +29,53 @@ FRONTEND_DIST = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist"
 STATIC_FALLBACK = os.path.join(os.path.dirname(__file__), "static")
 
 
+def init_db_tables():
+    """Verify products and business tables exist and are seeded on startup."""
+    try:
+        from shared.tools.db_tools import _query, _conn
+        rows = _query("SELECT COUNT(*) FROM products")
+        if not rows or "error" in rows[0] or rows[0].get("count", 0) == 0:
+            print("🌱 Seeding database tables with 21 business data tables...")
+            db_dir = os.path.join(os.path.dirname(__file__), "db")
+            schema_path = os.path.join(db_dir, "schema.sql")
+            seed_path = os.path.join(db_dir, "seed.sql.bak")
+            
+            with _conn() as conn:
+                with conn.cursor() as cur:
+                    if os.path.exists(schema_path):
+                        with open(schema_path, "r") as f:
+                            cur.execute(f.read())
+                            conn.commit()
+                    if os.path.exists(seed_path):
+                        with open(seed_path, "r") as f:
+                            seed_sql = f.read()
+                            parts = seed_sql.split('-- ==================== AUDIT LOGS ====================')
+                            cur.execute(parts[0])
+                            conn.commit()
+                            cur.execute("""
+                                INSERT INTO conversations (id, customer_id, customer_email, channel, status) VALUES
+                                ('conv-sample-001', 1, 'ahmed@techvista.pk', 'web', 'resolved'),
+                                ('conv-sample-002', 2, 'sara@novabyte.io', 'web', 'resolved'),
+                                ('conv-sample-003', 3, 'omar@cloudmatrix.ae', 'web', 'resolved'),
+                                ('conv-sample-004', 4, 'bilal@datapulse.pk', 'web', 'resolved'),
+                                ('conv-sample-005', 5, 'ayesha@meridianhealth.pk', 'web', 'resolved')
+                                ON CONFLICT DO NOTHING;
+                            """)
+                            conn.commit()
+                            if len(parts) > 1:
+                                cur.execute('-- ==================== AUDIT LOGS ====================' + parts[1])
+                                conn.commit()
+            print("✅ Database tables successfully initialized & seeded!")
+    except Exception as e:
+        print(f"⚠ Database startup init notice: {e}")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup/shutdown lifecycle."""
     # Create all tables
     SQLModel.metadata.create_all(engine)
+    init_db_tables()
     print(f"✅ {settings.PROJECT_NAME} started ({settings.ENVIRONMENT}). Tables synced.")
     yield
     print(f"⏹ {settings.PROJECT_NAME} shutting down.")

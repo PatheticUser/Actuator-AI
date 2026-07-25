@@ -87,6 +87,96 @@ def lookup_customer_by_email(email: str) -> str:
         f"{locked_info}"
     )
 
+@function_tool
+def register_customer(
+    company_name: str,
+    contact_name: str,
+    email: str,
+    role: str = "Administrator",
+    plan: str = "pro",
+    industry: str = "Technology",
+    company_size: str = "11-50",
+    region: str = "Asia/Pacific",
+) -> str:
+    """Register a new customer account, contact person, and subscription.
+
+    Args:
+        company_name: Name of customer's company.
+        contact_name: Full name of primary contact person.
+        email: Contact email address.
+        role: Job title/role of contact (default 'Administrator').
+        plan: Subscription plan: 'free', 'pro', 'enterprise', 'enterprise_plus' (default 'pro').
+        industry: Industry sector (default 'Technology').
+        company_size: Employee range: '1-10', '11-50', '51-200', '201-500', '500+' (default '11-50').
+        region: Region (default 'Asia/Pacific').
+    """
+    # Check if contact email already exists
+    existing = _query("SELECT id FROM customer_contacts WHERE email ILIKE %s", (email,))
+    if existing and "error" not in existing[0]:
+        return f"[ERROR] An account with email '{email}' already exists in our system."
+
+    try:
+        with _conn() as conn:
+            with conn.cursor() as cur:
+                # 1. Insert customer
+                cur.execute("""
+                    INSERT INTO customers (company_name, industry, company_size, region, status, health_score, mrr)
+                    VALUES (%s, %s, %s, %s, 'active', 100, 29900.00)
+                    RETURNING id
+                """, (company_name, industry, company_size, region))
+                customer_id = cur.fetchone()[0]
+
+                # 2. Insert customer contact
+                cur.execute("""
+                    INSERT INTO customer_contacts (customer_id, name, email, role, is_primary)
+                    VALUES (%s, %s, %s, %s, true)
+                    RETURNING id
+                """, (customer_id, contact_name, email, role))
+                contact_id = cur.fetchone()[0]
+
+                # 3. Lookup product id
+                cur.execute("SELECT id, name, price_monthly FROM products WHERE slug = %s OR name ILIKE %s LIMIT 1", (plan.lower(), f"%{plan}%"))
+                prod_row = cur.fetchone()
+                if prod_row:
+                    prod_id = prod_row[0]
+                    prod_name = prod_row[1]
+                else:
+                    cur.execute("SELECT id, name FROM products LIMIT 1")
+                    fallback = cur.fetchone()
+                    prod_id = fallback[0] if fallback else None
+                    prod_name = fallback[1] if fallback else plan
+
+                # 4. Insert subscription
+                if prod_id:
+                    cur.execute("""
+                        INSERT INTO subscriptions (customer_id, product_id, status, billing_cycle, current_period_start, current_period_end)
+                        VALUES (%s, %s, 'active', 'monthly', NOW(), NOW() + INTERVAL '30 days')
+                    """, (customer_id, prod_id))
+
+                conn.commit()
+
+        # Automatically send welcome email & log to notifications_log table
+        from shared.tools.notification_tools import send_email
+        email_result = send_email.on_invoke_tool(
+            context=None,
+            to=email,
+            subject=f"Welcome to Actuator AI, {contact_name}!",
+            body=f"Hi {contact_name},\n\nYour account for {company_name} has been successfully registered on the {prod_name.upper()} plan.\n\nAccount Details:\n- Customer ID: #{customer_id}\n- Contact Role: {role}\n- Region: {region}\n- Status: ACTIVE\n\nThank you for joining Actuator AI!",
+            priority="high"
+        )
+
+        return (
+            f"✅ Account successfully registered!\n"
+            f"  Customer ID: #{customer_id}\n"
+            f"  Company: {company_name} ({industry})\n"
+            f"  Primary Contact: {contact_name} ({email}) | Role: {role}\n"
+            f"  Plan: {prod_name.upper()} (Active)\n"
+            f"  Status: ACTIVE | Health Score: 100/100\n"
+            f"  Welcome Email: Sent & Logged ({email})"
+        )
+    except Exception as e:
+        return f"[ERROR] Registration failed: {e}"
+
 
 @function_tool
 def search_customers(field: str, value: str) -> str:
@@ -121,6 +211,41 @@ def search_customers(field: str, value: str) -> str:
             f"{r['status']} | Health: {r['health_score']} | MRR: PKR {r['mrr']:,.0f}"
         )
     return "\n".join(lines)
+
+
+@function_tool
+def cancel_subscription(email: str, reason: str = "User requested cancellation") -> str:
+    """Cancel a customer subscription.
+
+    Args:
+        email: Customer contact email address.
+        reason: Reason for cancellation.
+    """
+    rows = _query("""
+        SELECT s.id, c.company_name
+        FROM customer_contacts cc
+        JOIN customers c ON c.id = cc.customer_id
+        JOIN subscriptions s ON s.customer_id = c.id
+        WHERE cc.email ILIKE %s AND s.status = 'active'
+        LIMIT 1
+    """, (email,))
+
+    if not rows or "error" in rows[0]:
+        return f"[ERROR] No active subscription found for {email}."
+
+    sub_id = rows[0]["id"]
+    company = rows[0]["company_name"]
+    res = _execute(
+        "UPDATE subscriptions SET status = 'cancelled', cancelled_reason = %s, cancel_at = NOW() WHERE id = %s",
+        (reason, sub_id)
+    )
+    return (
+        f"Subscription cancelled for {company} ({email}):\n"
+        f"  Subscription ID: #{sub_id}\n"
+        f"  Reason: {reason}\n"
+        f"  Status: CANCELLED\n"
+        f"  DB Update: {res}"
+    )
 
 
 # ==================== BILLING TOOLS ====================
@@ -431,6 +556,125 @@ def unlock_account(email: str, reason: str) -> str:
         f"  Reason: {reason}\n"
         f"  Security event logged.\n"
         f"  User will receive email notification."
+    )
+@function_tool
+def update_customer_profile(
+    email: str,
+    name: str = "",
+    phone: str = "",
+    role: str = "",
+    timezone: str = "",
+    company_name: str = "",
+) -> str:
+    """Update customer contact or company profile details in the database.
+
+    Args:
+        email: Contact email address to update.
+        name: New full name (optional).
+        phone: New phone number (optional).
+        role: New job title/role (optional).
+        timezone: New timezone e.g. 'Asia/Karachi' (optional).
+        company_name: New company name (optional).
+    """
+    updated_fields = []
+    if name:
+        _execute("UPDATE customer_contacts SET name = %s WHERE email ILIKE %s", (name, email))
+        updated_fields.append(f"Name: {name}")
+    if phone:
+        _execute("UPDATE customer_contacts SET phone = %s WHERE email ILIKE %s", (phone, email))
+        updated_fields.append(f"Phone: {phone}")
+    if role:
+        _execute("UPDATE customer_contacts SET role = %s WHERE email ILIKE %s", (role, email))
+        updated_fields.append(f"Role: {role}")
+    if timezone:
+        _execute("UPDATE customer_contacts SET timezone = %s WHERE email ILIKE %s", (timezone, email))
+        updated_fields.append(f"Timezone: {timezone}")
+    if company_name:
+        _execute("""
+            UPDATE customers SET company_name = %s
+            WHERE id = (SELECT customer_id FROM customer_contacts WHERE email ILIKE %s LIMIT 1)
+        """, (company_name, email))
+        updated_fields.append(f"Company: {company_name}")
+
+    if not updated_fields:
+        return f"[NOTICE] No profile fields were updated for {email}."
+
+    return (
+        f"✅ Customer profile updated for {email}:\n"
+        f"  Updated: {', '.join(updated_fields)}\n"
+        f"  Database changes committed."
+    )
+
+
+@function_tool
+def change_plan(email: str, new_plan: str) -> str:
+    """Upgrade or downgrade customer's subscription plan in database.
+
+    Args:
+        email: Customer contact email address.
+        new_plan: Target plan tier: 'free', 'pro', 'enterprise', or 'enterprise_plus'.
+    """
+    rows = _query("SELECT id, name, price_monthly FROM products WHERE slug = %s OR name ILIKE %s LIMIT 1", (new_plan.lower(), f"%{new_plan}%"))
+    if not rows or "error" in rows[0]:
+        return f"[ERROR] Invalid plan '{new_plan}'. Available: free, pro, enterprise, enterprise_plus."
+
+    prod = rows[0]
+    prod_id = prod["id"]
+    prod_name = prod["name"]
+    price = prod["price_monthly"]
+
+    res = _execute("""
+        UPDATE subscriptions SET product_id = %s, status = 'active'
+        WHERE customer_id = (SELECT customer_id FROM customer_contacts WHERE email ILIKE %s LIMIT 1)
+    """, (prod_id, email))
+
+    # Update company MRR
+    _execute("""
+        UPDATE customers SET mrr = %s
+        WHERE id = (SELECT customer_id FROM customer_contacts WHERE email ILIKE %s LIMIT 1)
+    """, (price, email))
+
+    return (
+        f"✅ Subscription plan updated for {email}:\n"
+        f"  New Plan: {prod_name.upper()}\n"
+        f"  New MRR: PKR {price:,.0f}/mo\n"
+        f"  Status: ACTIVE\n"
+        f"  DB Sync: Completed."
+    )
+
+
+@function_tool
+def add_customer_contact(
+    primary_email: str,
+    new_contact_name: str,
+    new_contact_email: str,
+    role: str = "Member",
+    phone: str = "",
+) -> str:
+    """Add a secondary team member/contact to an existing company account.
+
+    Args:
+        primary_email: Primary account contact email or any existing team email.
+        new_contact_name: Full name of new team member.
+        new_contact_email: Email address for new contact.
+        role: Job title/role.
+        phone: Optional phone number.
+    """
+    cust = _query("SELECT customer_id FROM customer_contacts WHERE email ILIKE %s LIMIT 1", (primary_email,))
+    if not cust or "error" in cust[0]:
+        return f"[ERROR] Existing account not found for '{primary_email}'."
+
+    customer_id = cust[0]["customer_id"]
+    _execute("""
+        INSERT INTO customer_contacts (customer_id, name, email, phone, role, is_primary)
+        VALUES (%s, %s, %s, %s, %s, false)
+    """, (customer_id, new_contact_name, new_contact_email, phone, role))
+
+    return (
+        f"✅ Team member added!\n"
+        f"  Customer ID: #{customer_id}\n"
+        f"  New Contact: {new_contact_name} ({new_contact_email})\n"
+        f"  Role: {role}"
     )
 
 

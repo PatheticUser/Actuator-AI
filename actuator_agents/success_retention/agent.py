@@ -122,6 +122,9 @@ RETENTION RULES:
 - DO NOT INVENT SQL QUERIES OR TABLES!"""
 
 
+from shared.tools.db_tools import register_customer, cancel_subscription
+
+
 # --- Agent ---
 agent = Agent(
     name="Success Retention Agent",
@@ -132,9 +135,11 @@ agent = Agent(
         schedule_check_in,
         create_renewal_offer,
         log_churn_intervention,
+        register_customer,
+        cancel_subscription,
     ],
     input_guardrails=[detect_jailbreak],
-    handoff_description="Customer success: health checks, renewals, churn prevention, feature adoption, proactive outreach",
+    handoff_description="Customer success: health checks, renewals, churn prevention, feature adoption, cancellations, new customer registration",
 )
 
 

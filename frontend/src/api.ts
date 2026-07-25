@@ -33,13 +33,14 @@ export const fetchAgents = async (): Promise<Agent[]> => {
 export const streamMessage = (
   message: string,
   email: string,
-  conversationId?: string
+  conversationId?: string,
+  images?: string[]
 ) => {
   const store = useChatStore.getState();
   store.setLoading(true);
 
   // Add user message
-  store.addMessage({ role: 'user', content: message });
+  store.addMessage({ role: 'user', content: message, images: images || [] });
   
   // Add initial assistant streaming message using current agent
   store.addMessage({ role: 'assistant', content: '', agent_name: store.activeAgent === 'System' ? 'Supervisor Router' : store.activeAgent, isStreaming: true });
@@ -55,6 +56,7 @@ export const streamMessage = (
       message,
       customer_email: email,
       conversation_id: conversationId,
+      images: images || [],
     }));
   };
 
@@ -91,6 +93,10 @@ export const streamMessage = (
       store.setLoading(false);
       store.setActiveAgent(data.agent_name);
       ws.close();
+      // Refresh conversations sidebar history
+      if (email) {
+        fetchUserConversations(email).then(list => store.setConversationsHistory(list)).catch(() => {});
+      }
     }
     else if (data.type === 'error') {
       store.updateLastMessage(msg => ({
@@ -124,5 +130,17 @@ export const streamMessage = (
 
 export const fetchMessages = async (conversationId: string): Promise<Message[]> => {
   const res = await fetch(`${API_BASE}/chat/conversations/${conversationId}/messages`);
+  return res.json();
+};
+
+export const fetchUserConversations = async (email: string) => {
+  const res = await fetch(`${API_BASE}/chat/conversations?email=${encodeURIComponent(email)}`);
+  return res.json();
+};
+
+export const deleteConversationApi = async (conversationId: string) => {
+  const res = await fetch(`${API_BASE}/chat/conversations/${conversationId}`, {
+    method: 'DELETE',
+  });
   return res.json();
 };

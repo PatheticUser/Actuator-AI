@@ -86,17 +86,22 @@ async def run_chat_stream(
     conversation_id: str,
     db: Session,
     customer_email: str | None = None,
+    images: list[str] | None = None,
 ):
     """Run a message through the supervisor agent pipeline and yield stream events.
 
     Creates a FRESH MCP server per request to avoid lifecycle conflicts.
     Yields JSON strings of streaming events.
     """
+    db_content = message
+    if images and "[Image Attached]" not in message:
+        db_content = (message + " [Image Attached]").strip()
+
     # Save user message immediately so it survives WebSocket disconnects
     user_msg = Message(
         conversation_id=conversation_id,
         role="user",
-        content=message,
+        content=db_content,
     )
     db.add(user_msg)
     db.commit()
@@ -117,12 +122,18 @@ async def run_chat_stream(
         ).all()
 
         input_list = []
-        for msg in prior_messages:
+        for msg in prior_messages[:-1]:  # all except current user_msg
             role = msg.role if msg.role in ("user", "assistant") else "user"
             input_list.append({"role": role, "content": msg.content})
 
-        # Add current message to the input
-        input_list.append({"role": "user", "content": message})
+        # Add current message to the input — format as clean string for ModelScope compatibility
+        if images:
+            img_desc_parts = [message or "Analyze the attached file(s)/image(s)."]
+            for idx, img_data in enumerate(images, 1):
+                img_desc_parts.append(f"\n[Attachment #{idx}: Image/File attached — size {len(img_data)} bytes]")
+            input_list.append({"role": "user", "content": "\n".join(img_desc_parts)})
+        else:
+            input_list.append({"role": "user", "content": message})
 
         # Create fresh MCP instance — semaphore caps concurrent requests
         async with _semaphore:
@@ -139,6 +150,7 @@ async def run_chat_stream(
                     supervisor,
                     input_list,
                     context={"customer_email": customer_email},
+                    max_turns=30,
                 )
 
                 async for event in result.stream_events():

@@ -93,37 +93,51 @@ def update_profile(email: str, field: str, new_value: str) -> str:
         return f"Profile update queued for {email}: {field} → {new_value} (DB update: {e})"
 
 
+from shared.tools.db_tools import register_customer, update_customer_profile, add_customer_contact
+from shared.tools.notification_tools import send_email
+
 # --- Dynamic Instructions ---
 def build_instructions(ctx, agent):
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     customer_email = ctx.context.get("customer_email", "Unknown")
-    return f"""You are the Account Security Agent for Actuator AI. Current time: {now}
+    return f"""You are the Account & Security Agent for Actuator AI. Current time: {now}
 CURRENT USER: {customer_email}
 
 DATABASE ACCESS: You have a 'query' MCP tool for direct PostgreSQL access.
-ALWAYS call the 'query' MCP tool first to fetch real data before responding.
-NEVER guess or hallucinate account data — query the database.
+
+UNKNOWN USER & NO ACCOUNT FOUND PROTOCOL:
+If a user queries for an email or account that returns no records in the database, respond warmly and clearly in this format:
+"Hi, I wasn't able to find an account associated with [email] in our system.
+
+Could you double-check the email address on your account? Alternatively, if you have:
+• Your company name
+• A different email address you might have used
+• An invoice number (INV-XXXX format)
+Any of these would help me locate your subscription details.
+
+Would you like me to register a new account for you?"
+
+If the user asks to register, ask for their Company Name, Full Name, Email, and Plan (free, pro, enterprise), then call the `register_customer` tool.
 
 DATABASE SCHEMA:
-- 'customers' (id, company_name, industry, company_size, region, status, health_score, mrr, created_at)
-- 'customer_contacts' (id, customer_id, name, email, phone, role, is_primary BOOL, last_login TIMESTAMP, login_failures INT, account_locked BOOL, two_factor_enabled BOOL, two_factor_method VARCHAR)
+- 'customers' (id, company_name, industry, status, health_score, mrr)
+- 'customer_contacts' (id, customer_id, name, email, phone, role, account_locked, login_failures, two_factor_enabled, two_factor_method)
 - 'security_events' (id, contact_email, event_type, ip_address, location, details JSONB, created_at)
 
 STEP-BY-STEP PROTOCOL:
-1. Call 'query' MCP tool. WARNING: DO NOT WRITE YOUR OWN SQL. YOU MUST COPY AND PASTE THIS EXACT SQL QUERY:
-   SELECT c.company_name, c.status, cc.name, cc.email, cc.account_locked, cc.login_failures, cc.two_factor_enabled, cc.two_factor_method, cc.last_login FROM customers c JOIN customer_contacts cc ON cc.customer_id = c.id WHERE cc.email ILIKE '{customer_email}'
-2. For locked accounts: also query security_events, then call unlock_account tool
+1. Call 'query' MCP tool to fetch account details.
+2. For locked accounts: query security_events, then call unlock_account tool
 3. For 2FA requests: call initiate_2fa_setup or reset_2fa
 4. For password: call initiate_password_reset
-5. Report exact DB results to the customer
+5. For registration: call register_customer
+6. Report exact DB results to the customer
 
-AVAILABLE TOOLS: query (MCP), unlock_account, initiate_2fa_setup, reset_2fa, initiate_password_reset, update_profile
+AVAILABLE TOOLS: query (MCP), unlock_account, initiate_2fa_setup, reset_2fa, initiate_password_reset, update_profile, register_customer
 
 RULES:
 - NEVER reveal full account details or tokens
 - Always confirm account exists in DB before taking action
-- Report lock status, 2FA method, and last login from actual DB data
-- NEVER INVENT DATABASE TABLES. Only use the SQL queries provided above."""
+- Report lock status, 2FA method, and last login from actual DB data"""
 
 
 # --- Agent ---
@@ -138,9 +152,13 @@ agent = Agent(
         reset_2fa,
         initiate_password_reset,
         update_profile,
+        update_customer_profile,
+        add_customer_contact,
+        register_customer,
+        send_email,
     ],
     input_guardrails=[detect_jailbreak, detect_pii, detect_sql_injection],
-    handoff_description="Account and security issues: login problems, 2FA, password reset, profile updates, security alerts, account lockout",
+    handoff_description="Account and security issues: login problems, 2FA, password reset, profile updates, security alerts, account lockout, new account registration",
 )
 
 

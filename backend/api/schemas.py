@@ -10,6 +10,7 @@ class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=5000)
     conversation_id: Optional[str] = None  # None = new conversation
     customer_email: Optional[str] = None
+    images: Optional[list[str]] = None  # List of base64 data URLs
 
 
 class ChatResponse(BaseModel):

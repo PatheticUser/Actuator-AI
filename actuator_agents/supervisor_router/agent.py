@@ -35,26 +35,34 @@ from actuator_agents.audit.agent import agent as audit_agent
 MODEL = get_model()
 
 
+from shared.tools.db_tools import register_customer, update_customer_profile, change_plan
+
+
 # --- Supervisor Tools ---
 
 @function_tool
 def classify_request(message: str) -> str:
     """Classify incoming request into category and priority."""
-    message_lower = message.lower()
+    message_lower = message.lower().strip()
+
+    # Affirmative / continuation signals
+    affirmative_words = ["yes", "sure", "yes sure", "yeah", "yep", "ok", "okay", "go ahead", "please", "confirm", "proceed", "yes please", "sure thing", "create", "register"]
+    is_affirmative = any(message_lower == w or message_lower.startswith(w) for w in affirmative_words)
 
     # Category detection
     category_signals = {
         "technical": ["error", "bug", "api", "500", "502", "timeout", "crash", "sdk", "debug", "deploy"],
-        "account": ["login", "password", "2fa", "locked", "access", "account", "profile", "reset"],
-        "billing": ["invoice", "charge", "refund", "payment", "plan", "upgrade", "downgrade", "billing"],
+        "account": ["login", "password", "2fa", "locked", "access", "account", "profile", "reset", "register", "signup", "create account", "new user", "onboard"],
+        "billing": ["invoice", "charge", "refund", "payment", "plan", "upgrade", "downgrade", "billing", "subscribe", "register", "signup"],
         "success": ["cancel", "renew", "churn", "health", "adoption", "retention", "satisfaction"],
         "operations": ["crm", "jira", "ticket", "sync", "assign", "track"],
         "linguistic": ["translate", "sentiment", "language", "tone", "quality score"],
         "audit": ["audit", "hallucination", "compliance", "qa", "review response"],
     }
 
-    category = "general"
-    max_score = 0
+    category = "account" if is_affirmative else "general"
+    max_score = 2 if is_affirmative else 0
+
     for cat, signals in category_signals.items():
         score = sum(1 for s in signals if s in message_lower)
         if score > max_score:
@@ -99,21 +107,27 @@ def build_instructions(ctx, agent):
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     customer_email = ctx.context.get("customer_email", "Unknown")
     return f"""You are the Supervisor Router for Actuator AI. Current time: {now}
-CURRENT USER: {customer_email}
+CURRENT USER EMAIL: {customer_email}
 
 YOU ARE THE FRONT DOOR. Every customer message comes to you first.
 
-PROTOCOL — FOLLOW EXACTLY:
-1. Call classify_request with the user's message
-2. Based on the returned category, IMMEDIATELY hand off to the correct specialist via the corresponding 'transfer_to' tool.
-3. Once you decide to hand off, do not provide any further commentary or instructions to the next agent in your own message; just execute the transfer tool.
-4. If classification is unclear, ask ONE clarifying question to the user.
-5. Do NOT query the database yourself — specialists possess the necessary tools.
+CONVERSATION CONTEXT PROTOCOL:
+- Pay close attention to previous messages in the conversation.
+- If the user responds with an affirmative confirmation (e.g. 'yes sure', 'yes', 'sure', 'ok', 'please'):
+  * Look at the previous assistant turn.
+  * If the previous message asked if they want to create an account, register, or get plan details, PROCEED WITH THAT ACTION!
+  * NEVER claim 'I don't have any prior context' — check the chat history!
+  * Hand off to Account Security Agent or Billing Finance Agent, or ask for their company/contact details to register.
+
+ROUTING PROTOCOL:
+1. Call classify_request with the user's message.
+2. If asking about subscription, pricing, or plans $\rightarrow$ Hand off to Billing Finance Agent.
+3. If asking about login, 2FA, password, or registration $\rightarrow$ Hand off to Account Security Agent.
+4. Execute the corresponding 'transfer_to' tool immediately.
 
 RULES:
-- NEVER solve issues yourself — ALWAYS route to a specialist.
-- Be brief. Your only job is to get the user to the right expert.
-- Specialist agents are NOT supervisors; they cannot transfer back to you. Solve the user's specific problem within the specialist's domain."""
+- Be brief, smart, and helpful.
+- DO NOT FABRICATE REGISTRATION CONFIRMATION WITHOUT CALLING `register_customer` TOOL FIRST!"""
 
 
 # --- Supervisor Agent ---
@@ -122,7 +136,7 @@ supervisor = Agent(
     instructions=build_instructions,
     model=MODEL,
     model_settings=ModelSettings(temperature=0.2, max_tokens=800),
-    tools=[classify_request, escalate_to_human],
+    tools=[classify_request, escalate_to_human, register_customer, update_customer_profile, change_plan],
     handoffs=[
         technical_specialist,
         account_security,

@@ -107,6 +107,10 @@ def apply_credit(email: str, amount: float, reason: str) -> str:
     )
 
 
+from shared.tools.db_tools import register_customer, change_plan
+from shared.tools.notification_tools import send_email
+
+
 # --- Dynamic Instructions ---
 def build_instructions(ctx, agent):
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
@@ -117,6 +121,20 @@ CURRENT USER: {customer_email}
 DATABASE ACCESS: You have a 'query' MCP tool for direct PostgreSQL access.
 ALWAYS use the 'query' MCP tool to fetch real billing data before responding.
 NEVER invent invoice amounts, dates, or plan information.
+
+UNKNOWN USER & NO ACCOUNT FOUND PROTOCOL:
+If a user queries for an email or account that returns no records in the database, respond warmly and clearly in this format:
+"Hi, I wasn't able to find an account associated with [email] in our billing system.
+
+Could you double-check the email address on your account? Alternatively, if you have:
+• Your company name
+• A different email address you might have used
+• An invoice number (INV-XXXX format)
+Any of these would help me locate your subscription details.
+
+Would you like me to register a new account for you?"
+
+If the user asks to register, ask for their Company Name, Full Name, Email, and Plan (free, pro, enterprise), then call the `register_customer` tool immediately.
 
 DATABASE SCHEMA:
 - 'customers' (id, company_name, industry, status, health_score, mrr)
@@ -136,17 +154,14 @@ STEP-BY-STEP PROTOCOL:
 4. For plan query: query products WHERE is_active = true ORDER BY price_monthly
 5. For plan change: call change_plan tool
 6. For credits up to PKR 5000: call apply_credit tool directly
+7. For registering new account: call register_customer tool
 
-AVAILABLE TOOLS: query (MCP), change_plan, process_refund (needs approval), apply_credit
+AVAILABLE TOOLS: query (MCP), change_plan, process_refund (needs approval), apply_credit, register_customer
 
 RULES:
-- NEVER use tool names not listed above (no check_refund_status, no get_billing_info)
 - Refunds ALWAYS require manager approval via process_refund tool
-- Credits up to PKR 5,000 can be applied directly
-- Never share full payment card numbers
 - Always quote exact DB values for amounts and dates
-- WARNING: DO NOT WRITE YOUR OWN SQL QUERIES. ONLY USE THE EXACT SQL PATTERNS DESCRIBED ABOVE. NEVER INVENT TABLES OR COLUMNS!
-- TERMINAL AGENT: You are the final specialist. You DO NOT have tools to transfer to other agents. Complete the task yourself or ask the user for missing info. Do not attempt to call 'transfer_to_...' tools.
+- TERMINAL AGENT: You are the final specialist. Complete the task yourself or ask the user for missing info. Do not attempt to call 'transfer_to_...' tools.
 """
 
 
@@ -160,9 +175,11 @@ agent = Agent(
         change_plan,
         process_refund,
         apply_credit,
+        register_customer,
+        send_email,
     ],
     input_guardrails=[detect_jailbreak, detect_pii],
-    handoff_description="Billing and finance: invoices, payments, refunds, plan changes, usage, credits, billing disputes",
+    handoff_description="Billing and finance: invoices, payments, refunds, plan changes, usage, credits, registration for new accounts",
 )
 
 

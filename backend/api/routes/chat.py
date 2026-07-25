@@ -24,6 +24,7 @@ async def chat_websocket(websocket: WebSocket, db: Session = Depends(get_session
         message = req_data.get("message", "")
         conversation_id = req_data.get("conversation_id")
         customer_email = req_data.get("customer_email")
+        images = req_data.get("images", [])
 
         if conversation_id:
             conversation = db.get(Conversation, conversation_id)
@@ -52,6 +53,7 @@ async def chat_websocket(websocket: WebSocket, db: Session = Depends(get_session
             conversation_id=conv_id,
             db=db,
             customer_email=customer_email,
+            images=images,
         ):
             await websocket.send_text(chunk)
 
@@ -67,12 +69,15 @@ async def chat_websocket(websocket: WebSocket, db: Session = Depends(get_session
 
 @router.get("/conversations", response_model=list[ConversationResponse])
 def list_conversations(
+    email: str | None = None,
     status: str = "all",
-    limit: int = 20,
+    limit: int = 50,
     db: Session = Depends(get_session),
 ):
-    """List recent conversations."""
+    """List recent conversations, optionally filtered by user email."""
     query = select(Conversation).order_by(Conversation.started_at.desc()).limit(limit)
+    if email:
+        query = query.where(Conversation.customer_email.ilike(email))
     if status != "all":
         query = query.where(Conversation.status == status)
     conversations = db.exec(query).all()
@@ -92,3 +97,33 @@ def get_messages(conversation_id: str, db: Session = Depends(get_session)):
         .order_by(Message.created_at)
     ).all()
     return messages
+
+
+@router.delete("/conversations/{conversation_id}")
+def delete_conversation(conversation_id: str, db: Session = Depends(get_session)):
+    """Delete a conversation and all associated messages."""
+    conv = db.get(Conversation, conversation_id)
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found.")
+
+    # Delete messages
+    msgs = db.exec(select(Message).where(Message.conversation_id == conversation_id)).all()
+    for m in msgs:
+        db.delete(m)
+    db.delete(conv)
+    db.commit()
+    return {"status": "ok", "message": f"Conversation {conversation_id} deleted."}
+
+
+@router.patch("/conversations/{conversation_id}")
+def update_conversation(conversation_id: str, summary: str, db: Session = Depends(get_session)):
+    """Rename/update conversation title summary."""
+    conv = db.get(Conversation, conversation_id)
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found.")
+
+    conv.summary = summary
+    db.add(conv)
+    db.commit()
+    db.refresh(conv)
+    return conv
