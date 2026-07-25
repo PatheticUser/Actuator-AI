@@ -1,8 +1,53 @@
 """shared/tools/math_tools.py — Calculator, Currency & Unit Conversion"""
 
+import ast
+import operator
 import os
 import httpx
 from agents import function_tool
+
+
+# ── Safe Math Evaluator ──────────────────────────────────
+# Only permits arithmetic operators and numeric literals.
+# No function calls, attribute access, or builtins reachable.
+
+_ARITHMETIC_OPS = {
+    ast.Add: operator.add,
+    ast.Sub: operator.sub,
+    ast.Mult: operator.mul,
+    ast.Div: operator.truediv,
+    ast.Pow: operator.pow,
+    ast.Mod: operator.mod,
+    ast.FloorDiv: operator.floordiv,
+}
+
+
+def _safe_eval(expr: str) -> float:
+    """Evaluate an arithmetic expression safely using only the AST."""
+
+    def _eval_node(node) -> float:
+        if isinstance(node, ast.Expression):
+            return _eval_node(node.body)
+
+        if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
+            return float(node.value)
+
+        if isinstance(node, ast.UnaryOp):
+            if isinstance(node.op, ast.UAdd):
+                return +_eval_node(node.operand)
+            if isinstance(node.op, ast.USub):
+                return -_eval_node(node.operand)
+
+        if isinstance(node, ast.BinOp):
+            fn = _ARITHMETIC_OPS.get(type(node.op))
+            if fn is None:
+                raise ValueError(f"Unsupported operator: {type(node.op).__name__}")
+            return fn(_eval_node(node.left), _eval_node(node.right))
+
+        raise ValueError(f"Unsupported syntax: {type(node).__name__}")
+
+    tree = ast.parse(expr, mode="eval")
+    return _eval_node(tree.body)
 
 
 @function_tool
@@ -12,12 +57,13 @@ def calculate(expression: str) -> str:
     Args:
         expression: Math expression, e.g. '(29900 * 12) * 0.85'
     """
-    allowed = set("0123456789+-*/.() %")
-    if not all(c in allowed for c in expression):
-        return "[ERROR] Invalid characters. Only numbers and +-*/.()" " allowed."
     try:
-        result = eval(expression, {"__builtins__": {}}, {})
+        result = _safe_eval(expression)
         return f"{expression} = {result:,.4f}".rstrip("0").rstrip(".")
+    except SyntaxError:
+        return "[ERROR] Invalid syntax in expression."
+    except ValueError as e:
+        return f"[ERROR] {e}"
     except Exception as e:
         return f"[ERROR] Calculation failed: {e}"
 

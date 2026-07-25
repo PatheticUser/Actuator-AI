@@ -238,7 +238,7 @@ CREATE TABLE IF NOT EXISTS agents_config (
     agent_key       VARCHAR(50) UNIQUE NOT NULL,
     display_name    VARCHAR(100) NOT NULL,
     description     TEXT,
-    model_name      VARCHAR(100) DEFAULT 'qwen2.5:7b',
+    model_name      VARCHAR(100) DEFAULT 'Qwen-Ambassador/Qwen3.7-Max',
     temperature     DECIMAL(3,2) DEFAULT 0.20,
     max_tokens      INTEGER DEFAULT 1000,
     is_active       BOOLEAN DEFAULT true,

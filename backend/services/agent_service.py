@@ -36,8 +36,10 @@ _ALL_AGENTS = [
     linguistic_agent, audit_agent,
 ]
 
-# Lock prevents concurrent requests from clashing on shared agent objects
-_run_lock = asyncio.Lock()
+# Bounded concurrency: allows multiple requests in parallel while capping
+# resource usage. Replaces the previous asyncio.Lock which serialized all requests.
+_MAX_CONCURRENT_REQUESTS = 10
+_semaphore = asyncio.Semaphore(_MAX_CONCURRENT_REQUESTS)
 
 
 # Registry of all agents for info endpoint
@@ -90,6 +92,21 @@ async def run_chat_stream(
     Creates a FRESH MCP server per request to avoid lifecycle conflicts.
     Yields JSON strings of streaming events.
     """
+    # Save user message immediately so it survives WebSocket disconnects
+    user_msg = Message(
+        conversation_id=conversation_id,
+        role="user",
+        content=message,
+    )
+    db.add(user_msg)
+    db.commit()
+
+    # Track accumulated state for persistence on early termination
+    final_response = ""
+    agent_name = "Supervisor Router"
+    needs_approval = False
+    approval_items = []
+
     try:
         # Rebuild conversation history from DB — EXCLUDE guardrail-blocked messages
         prior_messages = db.exec(
@@ -107,8 +124,8 @@ async def run_chat_stream(
         # Add current message to the input
         input_list.append({"role": "user", "content": message})
 
-        # Create fresh MCP instance and run with lock
-        async with _run_lock:
+        # Create fresh MCP instance — semaphore caps concurrent requests
+        async with _semaphore:
             mcp = create_mcp_postgres()
             await mcp.connect()
             print(f"✅ MCP connected for request")
@@ -123,35 +140,28 @@ async def run_chat_stream(
                     input_list,
                     context={"customer_email": customer_email},
                 )
-                
-                final_response = ""
-                last_agent_name = "Supervisor Router"
-                needs_approval = False
-                approval_items = []
-                
+
                 async for event in result.stream_events():
                     if event.type == "raw_response_event" and isinstance(event.data, ResponseTextDeltaEvent):
                         delta = event.data.delta
                         final_response += delta
                         yield json.dumps({
                             "type": "content",
-                            "agent_name": last_agent_name,
+                            "agent_name": agent_name,
                             "content": delta
                         })
                     elif event.type == "agent_updated_stream_event":
-                        last_agent_name = event.new_agent.name
+                        agent_name = event.new_agent.name
                         yield json.dumps({
                             "type": "agent_update",
-                            "agent_name": last_agent_name
+                            "agent_name": agent_name
                         })
-                
+
                 needs_approval = bool(result.interruptions)
                 if needs_approval:
                     for interruption in result.interruptions:
                         approval_items.append(interruption.raw_item.name)
-                        
-                response_text = final_response or "No response generated."
-                agent_name = last_agent_name
+
             finally:
                 # Always cleanup: remove MCP refs + disconnect
                 for ag in _ALL_AGENTS:
@@ -162,17 +172,9 @@ async def run_chat_stream(
                 except Exception as cleanup_err:
                     print(f"⚠ MCP cleanup warning: {cleanup_err}")
 
-        # We must clear the MCP and save to DB
-        # This part happens AFTER the streaming completes.
-        
-        # Save BOTH messages only AFTER successful processing
-        user_msg = Message(
-            conversation_id=conversation_id,
-            role="user",
-            content=message,
-        )
-        db.add(user_msg)
+        response_text = final_response or "No response generated."
 
+        # Persist assistant message
         assistant_msg = Message(
             conversation_id=conversation_id,
             role="assistant",
@@ -181,14 +183,12 @@ async def run_chat_stream(
         )
         db.add(assistant_msg)
 
-        # Update conversation
         conv = db.get(Conversation, conversation_id)
         if conv:
             conv.last_agent = agent_name
 
         db.commit()
 
-        # Final JSON to close the stream with approval info
         yield json.dumps({
             "type": "done",
             "agent_name": agent_name,
@@ -196,9 +196,12 @@ async def run_chat_stream(
             "approval_items": approval_items
         })
 
-    except InputGuardrailTripwireTriggered as e:
-        # DON'T save the blocked user message to DB — prevents poison history
-        blocked_msg = f"⚠️ Message blocked by safety guardrail."
+    except InputGuardrailTripwireTriggered:
+        # DON'T save the blocked user message to DB — delete it
+        db.delete(user_msg)
+        db.commit()
+
+        blocked_msg = "⚠️ Message blocked by safety guardrail."
         assistant_msg = Message(
             conversation_id=conversation_id,
             role="assistant",
@@ -223,16 +226,16 @@ async def run_chat_stream(
 
         friendly_msg = f"Agent error: {error_detail}"
         if "Max turns" in error_detail:
-            friendly_msg = "I've reached my maximum analysis limit for this turn. Could you please clarify your request or provide more context so I can better assist you?"
+            friendly_msg = "I've reached my maximum analysis limit for this turn. Could you please clarify your request or provide more context so I can better assist you."
         elif "Tool" in error_detail and "not found" in error_detail:
-            # Often happens during handoff hallucinations
             friendly_msg = "I encountered a synchronization issue while connecting with a specialist. Please try rephrasing your request slightly."
 
+        # Save whatever we have — user message already saved, now save partial/error response
         assistant_msg = Message(
             conversation_id=conversation_id,
             role="assistant",
-            content=friendly_msg,
-            agent_name="System",
+            content=final_response or friendly_msg,
+            agent_name=agent_name,
         )
         db.add(assistant_msg)
         db.commit()

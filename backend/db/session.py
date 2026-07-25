@@ -1,7 +1,7 @@
 from sqlmodel import create_engine, Session
 from backend.core.config import settings
 
-engine = create_engine(settings.SQLALCHEMY_DATABASE_URI, echo=True)
+engine = create_engine(settings.SQLALCHEMY_DATABASE_URI, echo=settings.sql_echo)
 
 def get_session():
     with Session(engine) as session:

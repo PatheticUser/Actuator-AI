@@ -22,33 +22,25 @@ from agents import OpenAIChatCompletionsModel, set_tracing_disabled
 load_dotenv()
 set_tracing_disabled(True)
 
-OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
-OLLAMA_DEFAULT_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
-
 _client = None
+_client_base_url = None
 
 def _get_client() -> AsyncOpenAI:
-    global _client
-    if _client is None:
-        _client = AsyncOpenAI(base_url=OLLAMA_BASE_URL, api_key="ollama")
+    global _client, _client_base_url
+    base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
+    api_key = os.getenv("OLLAMA_API_KEY") or os.getenv("OPENAI_API_KEY") or "ollama"
+    
+    if _client is None or _client_base_url != base_url:
+        _client = AsyncOpenAI(base_url=base_url, api_key=api_key)
+        _client_base_url = base_url
     return _client
 
 
+from shared.models.factory import get_model as factory_get_model
+
+
 def get_model(model_name: str | None = None) -> OpenAIChatCompletionsModel:
-    """Get an Ollama-backed model for the Agents SDK.
+    """Get model from unified factory (defaults to LLM_PROVIDER env variable)."""
+    return factory_get_model(model_name)
 
-    Args:
-        model_name: Ollama model name (must be pulled first).
-                    Defaults to OLLAMA_MODEL env var or 'qwen2.5:7b'.
 
-    Returns:
-        Model ready to use with Agent(model=...). 
-
-    Requires:
-        ollama pull <model_name>
-        Models with tool-calling support: qwen2.5, llama3.1, mistral, qwen3
-    """
-    return OpenAIChatCompletionsModel(
-        model=model_name or OLLAMA_DEFAULT_MODEL,
-        openai_client=_get_client(),
-    )

@@ -11,10 +11,9 @@ from backend.db.session import get_session
 from backend.models.conversation import Customer
 from backend.core.config import settings
 
-# Wait, check if SECRET_KEY exists in settings. If not, use a dummy one for now.
-SECRET_KEY = getattr(settings, 'SECRET_KEY', 'supersecuresecretkey-change-in-prod')
+SECRET_KEY = settings.SECRET_KEY
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7 # 7 days
+ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7 days
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 

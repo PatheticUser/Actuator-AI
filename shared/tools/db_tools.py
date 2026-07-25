@@ -18,8 +18,8 @@ def _conn():
     return psycopg2.connect(
         host=os.getenv("POSTGRES_SERVER", "localhost"),
         port=os.getenv("POSTGRES_PORT", "5432"),
-        user=os.getenv("POSTGRES_USER", "rameez"),
-        password=os.getenv("POSTGRES_PASSWORD", "pu00"),
+        user=os.getenv("POSTGRES_USER", "postgres"),
+        password=os.getenv("POSTGRES_PASSWORD", "postgres"),
         dbname=os.getenv("POSTGRES_DB", "actuator_ai"),
     )
 
@@ -96,13 +96,19 @@ def search_customers(field: str, value: str) -> str:
         field: One of 'company_name', 'industry', 'status', 'region'.
         value: Value to search for (partial match).
     """
-    allowed = ["company_name", "industry", "status", "region"]
-    if field not in allowed:
-        return f"[ERROR] Invalid field. Use: {', '.join(allowed)}"
+    COLUMN_MAP = {
+        "company_name": "company_name",
+        "industry": "industry",
+        "status": "status",
+        "region": "region",
+    }
+    column = COLUMN_MAP.get(field)
+    if not column:
+        return f"[ERROR] Invalid field. Use: {', '.join(COLUMN_MAP.keys())}"
 
     rows = _query(
         f"SELECT id, company_name, industry, status, health_score, mrr "
-        f"FROM customers WHERE {field} ILIKE %s ORDER BY health_score DESC LIMIT 15",
+        f"FROM customers WHERE {column} ILIKE %s ORDER BY health_score DESC LIMIT 15",
         (f"%{value}%",),
     )
     if not rows or "error" in rows[0]:

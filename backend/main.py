@@ -7,7 +7,10 @@ Production-grade multi-agent customer support platform.
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from sqlmodel import SQLModel
+import os
 
 from backend.core.config import settings
 from backend.db.session import engine
@@ -21,12 +24,17 @@ from backend.api.routes.agents import router as agents_router
 from backend.api.routes.auth import router as auth_router
 
 
+# ── Paths ────────────────────────────────────────────────
+FRONTEND_DIST = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")
+STATIC_FALLBACK = os.path.join(os.path.dirname(__file__), "static")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup/shutdown lifecycle."""
     # Create all tables
     SQLModel.metadata.create_all(engine)
-    print(f"✅ {settings.PROJECT_NAME} started. Tables synced.")
+    print(f"✅ {settings.PROJECT_NAME} started ({settings.ENVIRONMENT}). Tables synced.")
     yield
     print(f"⏹ {settings.PROJECT_NAME} shutting down.")
 
@@ -36,33 +44,25 @@ app = FastAPI(
     version="1.0.0",
     description="Production multi-agent AI platform with 8 specialist agents.",
     lifespan=lifespan,
+    # Disable docs in production
+    docs_url="/docs" if not settings.is_production else None,
+    redoc_url="/redoc" if not settings.is_production else None,
 )
 
-# CORS — allow all origins for dev, lock down in production
+# CORS — env-driven origins
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=settings.cors_origin_list,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Register routes
+# Register API routes
 app.include_router(chat_router, prefix=settings.API_V1_STR)
 app.include_router(agents_router, prefix=settings.API_V1_STR)
 app.include_router(auth_router, prefix=settings.API_V1_STR)
 
-
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
-import os
-
-app.mount("/static", StaticFiles(directory="backend/static"), name="static")
-
-@app.get("/", response_class=FileResponse)
-def root_ui():
-    """Serve the basic Chat UI."""
-    return FileResponse(os.path.join("backend", "static", "index.html"))
 
 @app.get("/health")
 def health_check():
@@ -70,5 +70,37 @@ def health_check():
         "status": "ok",
         "project": settings.PROJECT_NAME,
         "version": "1.0.0",
+        "environment": settings.ENVIRONMENT,
         "agents": 8,
     }
+
+
+# ── Static File Serving ─────────────────────────────────
+# Serve React SPA from frontend/dist if it exists (production build),
+# otherwise fall back to backend/static/index.html (lightweight UI).
+
+if os.path.isdir(FRONTEND_DIST) and os.path.isfile(os.path.join(FRONTEND_DIST, "index.html")):
+    # Mount assets subdirectory for JS/CSS bundles
+    assets_dir = os.path.join(FRONTEND_DIST, "assets")
+    if os.path.isdir(assets_dir):
+        app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
+
+    # Serve static files at root (favicon, icons, etc.)
+    app.mount("/static", StaticFiles(directory=FRONTEND_DIST), name="frontend-static")
+
+    @app.get("/{full_path:path}")
+    async def serve_spa(full_path: str):
+        """Catch-all: serve file if exists, else index.html for client-side routing."""
+        file_path = os.path.join(FRONTEND_DIST, full_path)
+        if full_path and os.path.isfile(file_path):
+            return FileResponse(file_path)
+        return FileResponse(os.path.join(FRONTEND_DIST, "index.html"))
+else:
+    # Fallback: serve lightweight static HTML UI
+    app.mount("/static", StaticFiles(directory=STATIC_FALLBACK), name="static")
+
+    @app.get("/")
+    def root_ui():
+        """Serve the basic Chat UI."""
+        return FileResponse(os.path.join(STATIC_FALLBACK, "index.html"))
+

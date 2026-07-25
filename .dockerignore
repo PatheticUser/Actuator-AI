@@ -1,0 +1,50 @@
+# Dependencies & build artifacts
+.venv/
+venv/
+node_modules/
+frontend/node_modules/
+frontend/dist/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.coverage
+*.egg-info/
+build/
+dist/
+wheels/
+
+# Git & IDE
+.git/
+.gitignore
+.vscode/
+.claude/
+.idea/
+*.swp
+*.swo
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+
+# Documentation & scripts
+README.md
+*.md
+run.bat
+run.sh
+LICENSE
+
+# OS artifacts
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+*-debug.log*
+*-error.log*
+
+# Docker
+Dockerfile
+docker-compose*.yml
+.dockerignore

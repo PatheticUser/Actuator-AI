@@ -1,11 +1,5 @@
-"""shared/mcp_config.py — MCP PostgreSQL Server Factory
-
-Each agent MUST get its own MCPServerStdio instance.
-Sharing a singleton causes lifecycle conflicts during handoffs
-(connect/disconnect race → "Server not initialized" errors).
-"""
-
 import os
+import shutil
 from dotenv import load_dotenv
 from agents.mcp import MCPServerStdio, MCPServerStdioParams
 
@@ -25,10 +19,21 @@ def create_mcp_postgres() -> MCPServerStdio:
         f"{os.getenv('POSTGRES_PORT', '5432')}/"
         f"{os.getenv('POSTGRES_DB', 'actuator_ai')}"
     )
+
+    # Prefer globally installed binary for instant startup (<100ms) without npx network overhead
+    mcp_bin = shutil.which("mcp-server-postgres")
+    if mcp_bin:
+        command = mcp_bin
+        args = [db_url]
+    else:
+        command = "npx"
+        args = ["-y", "@modelcontextprotocol/server-postgres", db_url]
+
     return MCPServerStdio(
         params=MCPServerStdioParams(
-            command="npx",
-            args=["-y", "@modelcontextprotocol/server-postgres", db_url],
+            command=command,
+            args=args,
             client_session_timeout_seconds=30.0,
         )
     )
+
