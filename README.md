@@ -6,12 +6,13 @@
 
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB?style=flat&logo=python&logoColor=white)](https://python.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.135.3+-009688?style=flat&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
+[![Qwen 3.7 Max](https://img.shields.io/badge/LLM-Qwen--3.7--Max-6366F1?style=flat&logo=openai&logoColor=white)](https://modelscope.ai)
 [![OpenAI Agents SDK](https://img.shields.io/badge/OpenAI_Agents_SDK-0.13.6+-412991?style=flat&logo=openai&logoColor=white)](https://github.com/openai/openai-agents-python)
 [![React](https://img.shields.io/badge/React-19-61DAFB?style=flat&logo=react&logoColor=white)](https://react.dev)
-[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-14+-4169E1?style=flat&logo=postgresql&logoColor=white)](https://postgresql.org)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16+-4169E1?style=flat&logo=postgresql&logoColor=white)](https://postgresql.org)
 [![License](https://img.shields.io/badge/License-MIT-yellow?style=flat)](LICENSE)
 
-**8 specialized AI agents · Real-time database access via MCP · Human-in-the-loop approvals · Three-layer security guardrails**
+**8 specialized AI agents · Qwen 3.7-Max ModelScope LLM · Multimodal Vision & OCR · Persistent Conversation Sidebar · Real-time PostgreSQL MCP · Free Email Notifications · Safe CRUD Operations**
 
 </div>
 
@@ -728,8 +729,10 @@ uv run uvicorn backend.main:app --host 0.0.0.0 --port 8000
 | `GET` | `/api/v1/agents/{key}` | Agent details: name, description, tools |
 | `POST` | `/api/v1/auth/signup` | Account registration |
 | `POST` | `/api/v1/auth/login` | Authentication |
-| `GET` | `/api/v1/chat/conversations?status=&limit=` | List conversations |
+| `GET` | `/api/v1/chat/conversations?email=&status=&limit=` | List conversations (filtered by user email) |
 | `GET` | `/api/v1/chat/conversations/{id}/messages` | Get conversation messages |
+| `DELETE` | `/api/v1/chat/conversations/{id}` | Delete conversation and messages |
+| `PATCH` | `/api/v1/chat/conversations/{id}` | Rename conversation session title |
 | `GET` | `/health` | System health: status, version, agent count |
 | `GET` | `/` | Serve production static UI |
 
