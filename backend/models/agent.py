@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 class AgentBase(SQLModel):
     name: str = Field(index=True)
     description: Optional[str] = None
-    model_name: str = "Qwen-Ambassador/Qwen3.7-Max"
+    model_name: str = "auto"
     is_active: bool = True
 
 class Agent(AgentBase, table=True):

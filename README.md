@@ -6,13 +6,13 @@
 
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB?style=flat&logo=python&logoColor=white)](https://python.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.135.3+-009688?style=flat&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
-[![Qwen 3.7 Max](https://img.shields.io/badge/LLM-Qwen--3.7--Max-6366F1?style=flat&logo=openai&logoColor=white)](https://modelscope.ai)
+[![OmniRouter](https://img.shields.io/badge/LLM-OmniRouter-6366F1?style=flat&logo=openai&logoColor=white)](https://github.com/diegosouzapw/OmniRoute)
 [![OpenAI Agents SDK](https://img.shields.io/badge/OpenAI_Agents_SDK-0.13.6+-412991?style=flat&logo=openai&logoColor=white)](https://github.com/openai/openai-agents-python)
 [![React](https://img.shields.io/badge/React-19-61DAFB?style=flat&logo=react&logoColor=white)](https://react.dev)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16+-4169E1?style=flat&logo=postgresql&logoColor=white)](https://postgresql.org)
 [![License](https://img.shields.io/badge/License-MIT-yellow?style=flat)](LICENSE)
 
-**8 specialized AI agents · Qwen 3.7-Max ModelScope LLM · Multimodal Vision & OCR · Persistent Conversation Sidebar · Real-time PostgreSQL MCP · Free Email Notifications · Safe CRUD Operations**
+**8 specialized AI agents · OmniRouter auto-routing to 290+ providers · Multimodal Vision & OCR · Persistent Conversation Sidebar · Real-time PostgreSQL MCP · Free Email Notifications · Safe CRUD Operations**
 
 </div>
 
@@ -210,7 +210,7 @@ The central orchestrator. Every customer message enters through this agent, whic
 | Property | Value |
 |---|---|
 | **Agent Name** | Supervisor Router |
-| **Model** | `qwen2.5:7b` |
+| **Model** | `auto` (OmniRouter) |
 | **Temperature** | 0.20 |
 | **Max Tokens** | 800 |
 | **Input Guardrails** | Jailbreak, PII, SQL Injection |
@@ -224,13 +224,13 @@ The central orchestrator. Every customer message enters through this agent, whic
 
 | Agent | Model | Temp | Max Tokens | Function Tools | DB Tables (via MCP) |
 |---|---|---|---|---|---|
-| **Technical Specialist** | `qwen2.5:7b` | 0.2 | 1200 | `diagnose_service`, `check_system_status`, `create_support_ticket` | knowledge_articles, support_tickets, ticket_comments, api_usage, customers, customer_contacts |
+| **Technical Specialist** | `auto` | 0.2 | 1200 | `diagnose_service`, `check_system_status`, `create_support_ticket` | knowledge_articles, support_tickets, ticket_comments, api_usage, customers, customer_contacts |
 | **Account Security Agent** | `qwen2.5:7b` | 0.2 | 1000 | `unlock_account`, `initiate_2fa_setup`, `reset_2fa`, `initiate_password_reset`, `update_profile` | customers, customer_contacts, security_events |
 | **Billing Finance Agent** | `qwen2.5:7b` | 0.2 | 1000 | `change_plan`, `process_refund*`, `apply_credit` | invoices, invoice_line_items, subscriptions, products, payments, refunds, api_usage, customer_contacts |
-| **Success Retention Agent** | `qwen2.5:7b` | 0.4 | 1200 | `schedule_check_in`, `create_renewal_offer`, `log_churn_intervention` | customers, api_usage, feature_flags, feedback, support_tickets, subscriptions, products |
+| **Success Retention Agent** | `auto` | 0.4 | 1200 | `schedule_check_in`, `create_renewal_offer`, `log_churn_intervention` | customers, api_usage, feature_flags, feedback, support_tickets, subscriptions, products |
 | **Operations Sync Agent** | `qwen2.5:7b` | 0.2 | 1000 | `update_crm_note`, `create_support_ticket`, `create_jira_ticket`, `update_jira_ticket` | support_tickets, ticket_comments, notifications_log, customers, customer_contacts, subscriptions, products |
-| **Linguistic Agent** | `qwen2.5:7b` | 0.3 | 1000 | `detect_language`, `translate_text`, `analyze_sentiment`, `assess_communication_quality` | feedback |
-| **Audit Agent** | `qwen2.5:7b` | 0.1 | 1200 | `check_hallucination`, `check_policy_compliance`, `audit_conversation`, `score_response_accuracy`, `generate_qa_report` | audit_logs, escalations, conversations, messages |
+| **Linguistic Agent** | `auto` | 0.3 | 1000 | `detect_language`, `translate_text`, `analyze_sentiment`, `assess_communication_quality` | feedback |
+| **Audit Agent** | `auto` | 0.1 | 1200 | `check_hallucination`, `check_policy_compliance`, `audit_conversation`, `score_response_accuracy`, `generate_qa_report` | audit_logs, escalations, conversations, messages |
 
 Key behaviors:
 - **Billing**: `process_refund` has `needs_approval=True` -- triggers HITL workflow. Credit limits: <= PKR 5,000 direct; larger amounts require escalation.
@@ -262,7 +262,7 @@ Key behaviors:
 | **DB Access Protocol** | [MCP PostgreSQL Server](https://github.com/modelcontextprotocol/servers) | npx | `MCPServerStdio` with 30s session timeout; per-request factory pattern |
 | **Authentication** | [bcrypt](https://github.com/pyca/bcrypt) + [PyJWT](https://github.com/jpadilla/pyjwt) | >=5.0.0 + >=2.12.1 | bcrypt password hashing; HS256 JWT with 7-day expiry |
 | **Configuration** | [Pydantic Settings](https://docs.pydantic.dev/latest/concepts/pydantic_settings/) | >=2.13.1 | `BaseSettings` with `SettingsConfigDict(env_file=".env")`; computed properties for `SQLALCHEMY_DATABASE_URI` |
-| **LLM Inference** | [Ollama](https://ollama.com) | >=0.6.1 | OpenAI-compatible `AsyncOpenAI` client with shared connection pool |
+| **LLM Inference** | [OmniRouter](https://github.com/diegosouzapw/OmniRoute) | >=1.0 | Self-hosted AI gateway routing to 290+ providers with auto-failover. OpenAI-compatible endpoint. |
 | **HTTP Client** | [httpx](https://www.python-httpx.org) | >=0.28.1 | Async HTTP for Tavily search, currency conversion, webhook delivery |
 | **Frontend** | [React](https://react.dev) 19 + [Vite](https://vite.dev) 8 | -- | TypeScript 6.0 strict mode; `@vitejs/plugin-react` with SWC |
 | **State Management** | [Zustand](https://github.com/pmndrs/zustand) | 5.0.12 | Single store with `create<ChatStore>()`; action-based updates |
@@ -537,27 +537,15 @@ result = await Runner.run(agent, state)
 
 ## Model Inference Architecture
 
-### Provider Abstraction Layer
+### Provider Layer
 
-The `shared/models/` package provides a clean provider abstraction via factory functions, each returning a model compatible with `Agent(model=...)`:
+All LLM calls route through **OmniRouter** — self-hosted AI gateway at `http://localhost:20128/v1`. OmniRouter handles provider selection, failover, and compression across 290+ providers. Model is set to `auto` so OmniRouter picks the best provider per request.
 
-| Provider | Use Case |
+| Module | Purpose |
 |---|---|
-| `shared.models.ollama_provider` | Local inference (default) |
-| `shared.models.groq_provider` | Fast cloud inference |
-| `shared.models.openai_provider` | OpenAI cloud models |
-| `shared.models.litellm_provider` | 100+ provider gateway |
-
-All agents share a lazily-initialized `AsyncOpenAI` client for connection reuse. Switch providers by changing a single import line.
-
-### Recommended Models for Tool-Calling
-
-| Model | Strength | Provider |
-|---|---|---|
-| `deepseek-v3.1:671b-cloud` | Strongest tool calling, agentic chains, handoff routing | Ollama Cloud |
-| `gpt-oss:120b-cloud` | GPT architecture with native tool schema support | Ollama Cloud |
-| `qwen3-coder:480b-cloud` | Structured output, code reasoning, SQL generation | Ollama Cloud |
-| `qwen2.5:7b` | Lightweight default for local inference; good tool support | Local Ollama |
+| `shared.models.ollama_provider` | Default import for all agents (delegates to factory) |
+| `shared.models.factory` | Core factory — creates OpenAI-compatible client pointing at OmniRouter |
+| `shared.models.litellm_provider` | Direct LiteLLM access (only for use outside OmniRouter) |
 
 ---
 
@@ -648,7 +636,7 @@ Each of the 8 agents plus Guardrail and System have unique color + icon mappings
 - **PostgreSQL 14+** -- Create database `actuator_ai` and apply schema + seed
 - **Python 3.11+** -- Package management via `uv` (Astral)
 - **Node.js 18+** -- Frontend build tooling
-- **Ollama** -- Running locally with target model pulled (`ollama pull qwen2.5:7b`)
+- **OmniRouter** -- Self-hosted AI gateway auto-routing to 290+ providers (`npm install -g omniroute`)
 - **npx** (ships with Node.js) -- Required by MCP PostgreSQL server
 
 ### Quick Start
@@ -788,11 +776,11 @@ actuator-ai/
 |
 +-- shared/                               # Cross-component packages
 |   +-- guardrails/safety.py             # 3 input + 1 output guardrails
-|   +-- models/                          # LLM provider abstraction
-|   |   +-- ollama_provider.py           # Default: Ollama local
-|   |   +-- groq_provider.py             # Groq cloud inference
-|   |   +-- openai_provider.py           # OpenAI native
-|   |   +-- litellm_provider.py          # 100+ providers
+|   +-- models/                          # LLM provider abstraction (all route through OmniRouter)
+|   |   +-- ollama_provider.py           # Default import — delegates to factory
+|   |   +-- groq_provider.py             # Re-export from factory (legacy compat)
+|   |   +-- openai_provider.py           # Re-export from factory (legacy compat)
+|   |   +-- litellm_provider.py          # Direct LiteLLM (non-OmniRouter use only)
 |   +-- schemas/common.py                # Shared Pydantic models
 |   +-- tools/
 |   |   +-- db_tools.py                  # 18 database query/write tools
@@ -862,34 +850,18 @@ services:
       timeout: 5s
       retries: 5
 
-  ollama:
-    image: ollama/ollama:latest
-    ports: ["11434:11434"]
-    volumes:
-      - ollama_data:/root/.ollama
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
-
   app:
     build: .
     ports: ["8000:8000"]
     environment:
       POSTGRES_SERVER: postgres
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?err}
-      OLLAMA_BASE_URL: http://ollama:11434/v1
       SECRET_KEY: ${SECRET_KEY:?err}
     depends_on:
       postgres: { condition: service_healthy }
-      ollama: { condition: service_started }
 
 volumes:
   postgres_data:
-  ollama_data:
 ```
 </details>
 
@@ -902,8 +874,9 @@ volumes:
 | `POSTGRES_USER` | No | `postgres` | Database user |
 | `POSTGRES_PASSWORD` | Yes | -- | Database password |
 | `POSTGRES_DB` | No | `actuator_ai` | Database name |
-| `OLLAMA_BASE_URL` | Yes | `http://localhost:11434/v1` | Ollama endpoint |
-| `OLLAMA_MODEL` | No | `qwen2.5:7b` | Default inference model |
+| `OMNIROUTER_BASE_URL` | Yes | `http://127.0.0.1:20128/v1` | OmniRouter endpoint |
+| `OMNIROUTER_API_KEY` | Yes | -- | OmniRouter auth token |
+| `OMNIROUTER_MODEL` | No | `auto` | Model string (use `auto` for smart routing) |
 | `SECRET_KEY` | **Yes** | -- | JWT signing key -- **must be set in production** (`openssl rand -hex 32`) |
 | `API_V1_STR` | No | `/api/v1` | API prefix |
 
@@ -932,6 +905,6 @@ MIT License. See `LICENSE` for full text.
 
 - **OpenAI Agents SDK** -- Multi-agent orchestration framework providing handoffs, guardrails, function tools, and streaming
 - **FastAPI** -- High-performance async Python API framework with WebSocket support
-- **Ollama** -- Local LLM inference platform with OpenAI-compatible API
+- **OmniRouter** -- Self-hosted AI gateway routing to 290+ providers with auto-failover and token compression
 - **Model Context Protocol** -- Standardized protocol for tool access and database integration
 - **Lucide** -- Open-source icon library with consistent SVG-based design system

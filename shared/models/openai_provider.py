@@ -1,15 +1,12 @@
 """
-shared/models/openai_provider.py — OpenAI Cloud Models
+shared/models/openai_provider.py — LLM Provider (OmniRouter-backed)
 
-Usage:
-    from shared.models.openai_provider import get_model
-    model = get_model()                  # Default: gpt-5.4-mini
-    model = get_model("gpt-5.4-mini")        # Specific model
-
-Requires: OPENAI_API_KEY environment variable
+Everything routes through OmniRouter. Kept for backward compatibility.
 """
 
+from shared.models.factory import get_model as factory_get_model
 
-def get_model(model_name: str = "gpt-5.4-mini") -> str:
-    """Return model string for OpenAI (SDK uses it natively)."""
-    return model_name
+
+def get_model(model_name: str | None = None):
+    """Get model from OmniRouter via unified factory."""
+    return factory_get_model(model_name)

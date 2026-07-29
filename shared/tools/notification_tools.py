@@ -37,16 +37,8 @@ def _log_notification_to_db(recipient: str, channel: str, event_type: str, subje
         print(f"⚠ Failed to log notification to DB: {e}")
 
 
-@function_tool
-def send_email(to: str, subject: str, body: str, priority: str = "normal") -> str:
-    """Send email notification via free SMTP, SendGrid, or DB logged delivery.
-
-    Args:
-        to: Recipient email address.
-        subject: Email subject line.
-        body: Email body text content.
-        priority: 'low', 'normal', or 'high'.
-    """
+def _send_email_impl(to: str, subject: str, body: str, priority: str = "normal") -> str:
+    """Core email dispatch logic for both tools and internal calls."""
     # 1. Try SMTP if configured (Gmail, Brevo, Mailtrap, Ethereal, Mailjet, etc.)
     if SMTP_HOST and SMTP_USER:
         try:
@@ -100,6 +92,19 @@ def send_email(to: str, subject: str, body: str, priority: str = "normal") -> st
         f"  Priority: {priority.upper()}\n"
         f"  Logged to DB (notifications_log table) & console."
     )
+
+
+@function_tool
+def send_email(to: str, subject: str, body: str, priority: str = "normal") -> str:
+    """Send email notification via free SMTP, SendGrid, or DB logged delivery.
+
+    Args:
+        to: Recipient email address.
+        subject: Email subject line.
+        body: Email body text content.
+        priority: 'low', 'normal', or 'high'.
+    """
+    return _send_email_impl(to=to, subject=subject, body=body, priority=priority)
 
 
 @function_tool

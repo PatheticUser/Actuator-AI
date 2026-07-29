@@ -156,9 +156,8 @@ def register_customer(
                 conn.commit()
 
         # Automatically send welcome email & log to notifications_log table
-        from shared.tools.notification_tools import send_email
-        email_result = send_email.on_invoke_tool(
-            context=None,
+        from shared.tools.notification_tools import _send_email_impl
+        email_result = _send_email_impl(
             to=email,
             subject=f"Welcome to Actuator AI, {contact_name}!",
             body=f"Hi {contact_name},\n\nYour account for {company_name} has been successfully registered on the {prod_name.upper()} plan.\n\nAccount Details:\n- Customer ID: #{customer_id}\n- Contact Role: {role}\n- Region: {region}\n- Status: ACTIVE\n\nThank you for joining Actuator AI!",
