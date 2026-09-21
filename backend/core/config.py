@@ -15,12 +15,17 @@ class Settings(BaseSettings):
     SECRET_KEY: str = "dev-insecure-key-change-me"
 
     @model_validator(mode="after")
-    def _enforce_secret_key_in_production(self):
-        if self.is_production and self.SECRET_KEY.lower() in _INSECURE_DEFAULTS:
-            raise RuntimeError(
-                "SECRET_KEY must be set to a secure value in production. "
-                "Generate one with: openssl rand -hex 32"
-            )
+    def _enforce_security_in_production(self):
+        if self.is_production:
+            if self.SECRET_KEY.lower() in _INSECURE_DEFAULTS:
+                raise RuntimeError(
+                    "SECRET_KEY must be set to a secure value in production. "
+                    "Generate one with: openssl rand -hex 32"
+                )
+            if self.CORS_ORIGINS.strip() == "*":
+                raise RuntimeError(
+                    "CORS_ORIGINS cannot be '*' in production. Set explicit allowed domains."
+                )
         return self
 
     # CORS — comma-separated origins, "*" for dev

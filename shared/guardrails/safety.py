@@ -11,11 +11,12 @@ async def detect_jailbreak(ctx, agent, input):
     patterns = [
         "ignore your instructions", "ignore previous instructions",
         "you are now", "pretend you are", "act as if",
-        "DAN mode", "jailbreak", "forget your instructions",
+        "dan mode", "jailbreak", "forget your instructions",
         "override your", "system prompt", "<|im_start|>",
+        "bypass safety", "disregard all previous", "developer mode enabled",
     ]
     for p in patterns:
-        if p.lower() in text:
+        if p in text:
             return GuardrailFunctionOutput(
                 tripwire_triggered=True, output_info=f"Jailbreak: '{p}'"
             )
@@ -41,7 +42,10 @@ async def detect_pii(ctx, agent, input):
 async def detect_sql_injection(ctx, agent, input):
     """Block SQL injection attempts."""
     text = str(input).upper()
-    patterns = ["DROP TABLE", "DELETE FROM", "'; --", "OR 1=1", "UNION SELECT"]
+    patterns = [
+        "DROP TABLE", "DELETE FROM", "'; --", "OR 1=1", "UNION SELECT",
+        "TRUNCATE TABLE", "ALTER TABLE", "EXEC XP_", "INFORMATION_SCHEMA",
+    ]
     for p in patterns:
         if p in text:
             return GuardrailFunctionOutput(
