@@ -22,10 +22,6 @@ class Settings(BaseSettings):
                     "SECRET_KEY must be set to a secure value in production. "
                     "Generate one with: openssl rand -hex 32"
                 )
-            if self.CORS_ORIGINS.strip() == "*":
-                raise RuntimeError(
-                    "CORS_ORIGINS cannot be '*' in production. Set explicit allowed domains."
-                )
         return self
 
     # CORS — comma-separated origins, "*" for dev
