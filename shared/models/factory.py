@@ -36,30 +36,30 @@ def get_model(model_name: str | None = None) -> OpenAIChatCompletionsModel:
     2. OMNIROUTER_API_KEY (OmniRouter self-hosted gateway)
     3. OPENAI_API_KEY (direct OpenAI endpoint)
     """
-    gemini_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
-    omnirouter_key = os.getenv("OMNIROUTER_API_KEY")
-    openai_key = os.getenv("OPENAI_API_KEY")
+    gemini_key = (os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or "").strip()
+    omnirouter_key = (os.getenv("OMNIROUTER_API_KEY") or "").strip()
+    openai_key = (os.getenv("OPENAI_API_KEY") or "").strip()
 
     if gemini_key:
-        base_url = os.getenv("GEMINI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta/openai/")
-        target_model = model_name or os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+        base_url = (os.getenv("GEMINI_BASE_URL") or "https://generativelanguage.googleapis.com/v1beta/openai/").strip()
+        target_model = (model_name or os.getenv("GEMINI_MODEL") or "gemini-2.5-flash").strip()
         client = _get_client(base_url=base_url, api_key=gemini_key)
         return OpenAIChatCompletionsModel(model=target_model, openai_client=client)
 
     if omnirouter_key:
-        base_url = os.getenv("OMNIROUTER_BASE_URL", "http://127.0.0.1:20128/v1")
-        target_model = model_name or os.getenv("OMNIROUTER_MODEL", "auto")
+        base_url = (os.getenv("OMNIROUTER_BASE_URL") or "http://127.0.0.1:20128/v1").strip()
+        target_model = (model_name or os.getenv("OMNIROUTER_MODEL") or "auto").strip()
         client = _get_client(base_url=base_url, api_key=omnirouter_key)
         return OpenAIChatCompletionsModel(model=target_model, openai_client=client)
 
     if openai_key:
-        base_url = os.getenv("OPENAI_BASE_URL")
-        target_model = model_name or os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+        base_url = (os.getenv("OPENAI_BASE_URL") or "").strip() or None
+        target_model = (model_name or os.getenv("OPENAI_MODEL") or "gpt-4o-mini").strip()
         client = _get_client(base_url=base_url, api_key=openai_key)
         return OpenAIChatCompletionsModel(model=target_model, openai_client=client)
 
     # Fallback to OmniRouter localhost defaults
-    base_url = os.getenv("OMNIROUTER_BASE_URL", "http://127.0.0.1:20128/v1")
-    target_model = model_name or "auto"
+    base_url = (os.getenv("OMNIROUTER_BASE_URL") or "http://127.0.0.1:20128/v1").strip()
+    target_model = (model_name or "auto").strip()
     client = _get_client(base_url=base_url, api_key="missing")
     return OpenAIChatCompletionsModel(model=target_model, openai_client=client)
