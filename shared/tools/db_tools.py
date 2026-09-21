@@ -15,6 +15,9 @@ import psycopg2.extras
 
 def _conn():
     """Get database connection."""
+    db_url = os.getenv("DATABASE_URL")
+    if db_url:
+        return psycopg2.connect(db_url)
     return psycopg2.connect(
         host=os.getenv("POSTGRES_SERVER", "localhost"),
         port=os.getenv("POSTGRES_PORT", "5432"),

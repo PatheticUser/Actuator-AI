@@ -12,13 +12,17 @@ def create_mcp_postgres() -> MCPServerStdio:
     Each agent must call this separately — never share instances.
     The SDK manages connect/disconnect lifecycle per Runner.run() call.
     """
-    db_url = (
-        f"postgres://{os.getenv('POSTGRES_USER', 'postgres')}:"
-        f"{os.getenv('POSTGRES_PASSWORD', 'postgres')}@"
-        f"{os.getenv('POSTGRES_SERVER', 'localhost')}:"
-        f"{os.getenv('POSTGRES_PORT', '5432')}/"
-        f"{os.getenv('POSTGRES_DB', 'actuator_ai')}"
-    )
+    db_url = os.getenv("DATABASE_URL")
+    if not db_url:
+        db_url = (
+            f"postgres://{os.getenv('POSTGRES_USER', 'postgres')}:"
+            f"{os.getenv('POSTGRES_PASSWORD', 'postgres')}@"
+            f"{os.getenv('POSTGRES_SERVER', 'localhost')}:"
+            f"{os.getenv('POSTGRES_PORT', '5432')}/"
+            f"{os.getenv('POSTGRES_DB', 'actuator_ai')}"
+        )
+    elif db_url.startswith("postgresql://"):
+        db_url = db_url.replace("postgresql://", "postgres://", 1)
 
     # Prefer globally installed binary for instant startup (<100ms) without npx network overhead
     mcp_bin = shutil.which("mcp-server-postgres")
