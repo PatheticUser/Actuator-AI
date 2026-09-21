@@ -2,7 +2,7 @@
 shared/models/factory.py — Multi-Provider LLM Provider Factory
 
 Supports:
-1. Google AI Studio (Gemini 2.5 Flash / 1.5 Flash via OpenAI compatibility endpoint)
+1. Google AI Studio (Gemini Flash via OpenAI compatibility endpoint)
 2. OmniRouter (self-hosted AI gateway auto-routing across 290+ providers)
 3. Direct OpenAI or compatible endpoints
 """
@@ -42,7 +42,7 @@ def get_model(model_name: str | None = None) -> OpenAIChatCompletionsModel:
 
     if gemini_key:
         base_url = (os.getenv("GEMINI_BASE_URL") or "https://generativelanguage.googleapis.com/v1beta/openai/").strip()
-        target_model = (model_name or os.getenv("GEMINI_MODEL") or "gemini-2.5-flash").strip()
+        target_model = (model_name or os.getenv("GEMINI_MODEL") or "gemini-3.6-flash").strip()
         client = _get_client(base_url=base_url, api_key=gemini_key)
         return OpenAIChatCompletionsModel(model=target_model, openai_client=client)
 
