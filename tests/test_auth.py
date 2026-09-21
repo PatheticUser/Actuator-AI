@@ -14,3 +14,4 @@ def test_auth_request_invalid_email():
 def test_auth_request_short_password():
     with pytest.raises(ValidationError):
         AuthRequest(email="valid@example.com", password="short")
+

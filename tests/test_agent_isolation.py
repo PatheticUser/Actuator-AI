@@ -24,3 +24,4 @@ def test_create_isolated_agent_pipeline_separate_references():
     for ag in all1:
         ag.mcp_servers = []
     assert sup1.mcp_servers == []
+
