@@ -92,6 +92,35 @@ def signup(req: AuthRequest, db: Session = Depends(get_session)):
         db.commit()
         db.refresh(user)
 
+        # Synchronize new user into customer_contacts & customers so agents find them
+        try:
+            from shared.tools.db_tools import _query, _execute
+            contact = _query("SELECT id FROM customer_contacts WHERE email ILIKE %s LIMIT 1", (req.email,))
+            if not contact or "error" in contact[0]:
+                company = f"{user.name}'s Organization"
+                from shared.tools.db_tools import _conn
+                with _conn() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute("""
+                            INSERT INTO customers (company_name, industry, company_size, region, status, health_score, mrr)
+                            VALUES (%s, 'Technology', '1-10', 'Global', 'active', 80, 0.00)
+                            RETURNING id
+                        """, (company,))
+                        cid = cur.fetchone()[0]
+
+                        cur.execute("""
+                            INSERT INTO customer_contacts (customer_id, name, email, role, is_primary)
+                            VALUES (%s, %s, %s, 'Owner', true)
+                        """, (cid, user.name, user.email))
+
+                        cur.execute("""
+                            INSERT INTO subscriptions (customer_id, product_id, status, current_period_end)
+                            VALUES (%s, (SELECT id FROM products WHERE slug = 'free' LIMIT 1), 'active', NOW() + INTERVAL '1 month')
+                        """, (cid,))
+                        conn.commit()
+        except Exception as sync_err:
+            print(f"⚠ Warning: Could not auto-sync customer contact: {sync_err}")
+
     token = create_access_token({"sub": user.email})
     return AuthResponse(access_token=token, token_type="bearer", email=user.email, name=user.name)
 
