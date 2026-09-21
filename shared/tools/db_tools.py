@@ -5,6 +5,7 @@ Every agent uses these instead of hardcoded mock data.
 Connection uses rameez/pu00 @ actuator_ai.
 """
 
+import contextlib
 import os
 from datetime import datetime, timezone
 from agents import function_tool
@@ -12,19 +13,47 @@ from agents import function_tool
 import psycopg2
 import psycopg2.extras
 
+# libpq TCP keepalives: detect connections dropped by provider proxies
+_CONNECT_OPTS = {
+    "connect_timeout": 10,
+    "keepalives": 1,
+    "keepalives_idle": 30,
+    "keepalives_interval": 10,
+    "keepalives_count": 5,
+}
 
+
+@contextlib.contextmanager
 def _conn():
-    """Get database connection."""
+    """Yield a database connection that is always closed on exit.
+
+    Note: psycopg2's native `with conn:` commits/rolls back the transaction
+    but does NOT close the connection — it leaks sockets. This wrapper
+    guarantees conn.close(), so `with _conn() as conn:` works unchanged.
+    """
     db_url = os.getenv("DATABASE_URL")
     if db_url:
-        return psycopg2.connect(db_url)
-    return psycopg2.connect(
-        host=os.getenv("POSTGRES_SERVER", "localhost"),
-        port=os.getenv("POSTGRES_PORT", "5432"),
-        user=os.getenv("POSTGRES_USER", "postgres"),
-        password=os.getenv("POSTGRES_PASSWORD", "postgres"),
-        dbname=os.getenv("POSTGRES_DB", "actuator_ai"),
-    )
+        conn = psycopg2.connect(db_url, **_CONNECT_OPTS)
+    else:
+        conn = psycopg2.connect(
+            host=os.getenv("POSTGRES_SERVER", "localhost"),
+            port=os.getenv("POSTGRES_PORT", "5432"),
+            user=os.getenv("POSTGRES_USER", "postgres"),
+            password=os.getenv("POSTGRES_PASSWORD", "postgres"),
+            dbname=os.getenv("POSTGRES_DB", "actuator_ai"),
+            **_CONNECT_OPTS,
+        )
+    try:
+        yield conn
+    except Exception:
+        conn.rollback()
+        raise
+    else:
+        # Commit any transaction the caller left open (old `with conn:` behavior)
+        if not conn.closed and conn.status != psycopg2.extensions.STATUS_READY:
+            conn.commit()
+    finally:
+        conn.close()
 
 
 def _query(sql: str, params: tuple = ()) -> list[dict]:
