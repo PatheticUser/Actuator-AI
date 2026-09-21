@@ -1,0 +1,28 @@
+# Caddyfile for Actuator AI Production Reverse Proxy
+
+{$DOMAIN:localhost} {
+    # Automatic HTTPS via Let's Encrypt when DOMAIN is set to a public FQDN
+    # Falls back to local self-signed HTTPS if localhost
+
+    # Proxy all traffic including WebSockets to backend app
+    reverse_proxy app:8000 {
+        # WebSocket streaming buffers flush immediately
+        flush_interval -1
+    }
+
+    # Security headers
+    header {
+        X-Content-Type-Options nosniff
+        X-Frame-Options DENY
+        Referrer-Policy strict-origin-when-cross-origin
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+    }
+
+    # Gzip / Zstandard compression for static web assets
+    encode zstd gzip
+
+    log {
+        output stdout
+        format console
+    }
+}
