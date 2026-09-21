@@ -29,15 +29,29 @@ from shared.mcp_config import create_mcp_postgres
 from backend.models.conversation import Conversation, Message
 
 
-# All agents that receive MCP DB access
-_ALL_AGENTS = [
+import copy
+
+# Base blueprint agents
+_BASE_ALL_AGENTS = [
     supervisor, technical_specialist, account_security,
     billing_finance, success_retention, operations_sync,
     linguistic_agent, audit_agent,
 ]
 
+def create_isolated_agent_pipeline():
+    """Create request-isolated copies of supervisor and all handoff agents.
+
+    Prevents race condition where concurrent requests overwrite .mcp_servers
+    on shared global module singletons.
+    """
+    sup_copy = copy.copy(supervisor)
+    handoff_copies = [copy.copy(h) for h in supervisor.handoffs]
+    sup_copy.handoffs = handoff_copies
+    all_isolated = [sup_copy] + handoff_copies
+    return sup_copy, all_isolated
+
 # Bounded concurrency: allows multiple requests in parallel while capping
-# resource usage. Replaces the previous asyncio.Lock which serialized all requests.
+# resource usage.
 _MAX_CONCURRENT_REQUESTS = 10
 _semaphore = asyncio.Semaphore(_MAX_CONCURRENT_REQUESTS)
 
@@ -173,19 +187,22 @@ async def run_chat_stream(
         else:
             input_list.append({"role": "user", "content": message})
 
-        # Create fresh MCP instance — semaphore caps concurrent requests
+        # Create fresh MCP instance and isolated agents — semaphore caps concurrent requests
         async with _semaphore:
             mcp = create_mcp_postgres()
             await mcp.connect()
             print(f"✅ MCP connected for request")
 
-            # Assign MCP to all agents
-            for ag in _ALL_AGENTS:
+            # Create request-isolated agent hierarchy
+            isolated_supervisor, isolated_all = create_isolated_agent_pipeline()
+
+            # Assign MCP to isolated agent copies only
+            for ag in isolated_all:
                 ag.mcp_servers = [mcp]
 
             try:
                 result = Runner.run_streamed(
-                    supervisor,
+                    isolated_supervisor,
                     input_list,
                     context={"customer_email": customer_email},
                     max_turns=30,
@@ -214,7 +231,7 @@ async def run_chat_stream(
 
             finally:
                 # Always cleanup: remove MCP refs + disconnect
-                for ag in _ALL_AGENTS:
+                for ag in isolated_all:
                     ag.mcp_servers = []
                 try:
                     await mcp.cleanup()

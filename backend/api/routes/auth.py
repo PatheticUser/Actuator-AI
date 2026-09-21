@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlmodel import Session, select
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr, field_validator
 import jwt
 import bcrypt
 from datetime import datetime, timedelta, timezone
@@ -18,10 +18,29 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7 days
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 
+
+import re
+
 class AuthRequest(BaseModel):
     email: str
     password: str
     name: str | None = None  # Only required for signup
+
+    @field_validator("email")
+    @classmethod
+    def validate_email_format(cls, v: str) -> str:
+        clean = v.strip()
+        pattern = r"^[\w\.-]+@[\w\.-]+\.\w{2,}$"
+        if not re.match(pattern, clean):
+            raise ValueError("Invalid email format")
+        return clean
+
+    @field_validator("password")
+    @classmethod
+    def validate_password_length(cls, v: str) -> str:
+        if len(v) < 8:
+            raise ValueError("Password must be at least 8 characters long")
+        return v
 
 class AuthResponse(BaseModel):
     access_token: str

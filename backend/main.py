@@ -108,8 +108,18 @@ app.include_router(auth_router, prefix=settings.API_V1_STR)
 
 @app.get("/health")
 def health_check():
+    db_status = "ok"
+    try:
+        from sqlmodel import text
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+    except Exception as e:
+        db_status = f"unhealthy: {e}"
+
+    is_healthy = db_status == "ok"
     return {
-        "status": "ok",
+        "status": "ok" if is_healthy else "degraded",
+        "database": db_status,
         "project": settings.PROJECT_NAME,
         "version": "1.0.0",
         "environment": settings.ENVIRONMENT,

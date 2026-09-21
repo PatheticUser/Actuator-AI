@@ -25,6 +25,19 @@ async def chat_websocket(websocket: WebSocket, db: Session = Depends(get_session
         conversation_id = req_data.get("conversation_id")
         customer_email = req_data.get("customer_email")
         images = req_data.get("images", [])
+        token = req_data.get("token") or websocket.query_params.get("token")
+
+        # Optional JWT verification for authenticated sessions
+        if token:
+            try:
+                import jwt
+                from backend.core.config import settings
+                payload = jwt.decode(token, settings.SECRET_KEY, algorithms=["HS256"])
+                token_email = payload.get("sub")
+                if token_email and not customer_email:
+                    customer_email = token_email
+            except Exception:
+                pass
 
         if conversation_id:
             conversation = db.get(Conversation, conversation_id)
