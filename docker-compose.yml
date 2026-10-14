@@ -1,52 +1,149 @@
-services:
-  # ── PostgreSQL ────────────────────────────────────────
-  postgres:
-    image: postgres:16-alpine
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: ${POSTGRES_DB:-actuator_ai}
-      POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./backend/db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
-    ports:
-      - "${POSTGRES_PORT:-5432}:5432"
-    healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-actuator_ai}" ]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
+# ══════════════════════════════════════════════════════════════════════
+#  Actuator AI — production stack for Oracle Cloud Always Free
+#  Ubuntu 24.04 ARM64 (Ampere A1) + Docker Compose + Caddy 2
+#
+#    Internet ──► Caddy :80/:443 (TLS, WebSocket upgrade)
+#                     │  docker bridge network "actuator-edge"
+#                     ▼
+#                 app :8000 (FastAPI / uvicorn, never published)
+#                     │
+#                     ▼
+#              postgres :5432 (never published)
+#
+#  Usage (all runtime values come from .env.production):
+#      cp .env.production.example .env.production   # then edit
+#      docker compose up -d --build
+#
+#  Only Caddy binds host ports 80/443 (+443/udp for HTTP/3).
+#  app and postgres are reachable *only* from within the
+#  "actuator-edge" bridge network.
+# ══════════════════════════════════════════════════════════════════════
 
-  # ── Actuator AI App ──────────────────────────────────
-  app:
-    build:
-      context: .
-      dockerfile: Dockerfile
+name: actuator-ai
+
+# Shared log-rotation policy (keeps journal/docker disk usage bounded).
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+services:
+  # ── Edge / reverse proxy — the ONLY service with published ports ────
+  caddy:
+    image: caddy:2-alpine
+    container_name: actuator-caddy
+    platform: ${DOCKER_PLATFORM:-linux/arm64}
     restart: unless-stopped
+    init: true
     ports:
-      - "${APP_PORT:-8000}:8000"
-    env_file: .env
-    environment:
-      - ENVIRONMENT=production
-      - POSTGRES_SERVER=postgres
-      - POSTGRES_PORT=5432
-      - POSTGRES_USER=${POSTGRES_USER:-postgres}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
-      - POSTGRES_DB=${POSTGRES_DB:-actuator_ai}
-      - SECRET_KEY=${SECRET_KEY:?Set SECRET_KEY in .env (openssl rand -hex 32)}
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+      - "80:80"          # HTTP → HTTPS redirect + ACME http-01
+      - "443:443"        # HTTPS (TLS 1.2/1.3, automatic Let's Encrypt)
+      - "443:443/udp"    # HTTP/3 (optional — open 443/udp in the OCI VCN too)
+    env_file:
+      - .env.production      # required — compose fails fast if it is missing
+    # DOMAIN / ACME_EMAIL are read by the Caddyfile ({$DOMAIN}, {$ACME_EMAIL})
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data        # ACME certs survive rebuilds
+      - caddy_config:/config
+    networks:
+      - edge
     depends_on:
-      postgres:
+      app:
         condition: service_healthy
     healthcheck:
-      test: [ "CMD", "curl", "-f", "http://localhost:8000/health" ]
+      # Caddy's admin API (localhost:2019 inside the container)
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:2019/config/"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 15s
+    logging: *default-logging
+
+  # ── Application (FastAPI + React SPA + MCP servers) ─────────────────
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: actuator-ai:latest
+    container_name: actuator-app
+    platform: ${DOCKER_PLATFORM:-linux/arm64}
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 35s
+    expose:
+      - "8000"           # internal only — never published to the host
+    env_file:
+      - .env.production      # required — compose fails fast if it is missing
+    environment:
+      # Container-local overrides that must not depend on .env.production
+      ENVIRONMENT: production
+      PORT: "8000"
+      POSTGRES_SERVER: postgres     # docker DNS name of the db service
+      POSTGRES_PORT: "5432"         # in-network port (no host mapping)
+      # WEB_CONCURRENCY comes from .env.production (default 2 in the Dockerfile)
+    # Uncomment only for emergency debugging from the host:
+    # ports:
+    #   - "127.0.0.1:8000:8000"
+    networks:
+      - edge
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      # /health always answers 200, so assert the payload really says "ok"
+      # (that is only true when the DB round-trip inside the app succeeded).
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8000/health | grep -Eq '\"status\": *\"ok\"'"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 40s        # first boot creates/seeds 21 business tables
+    logging: *default-logging
+    # Resource caps (Ampere A1 Always Free = 4 OCPU / 24 GB). Uncomment to
+    # guarantee the database and proxy always keep headroom:
+    # mem_limit: 6g
+    # cpus: 2
+
+  # ── PostgreSQL 16 (internal only, no host port) ─────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: actuator-postgres
+    platform: ${DOCKER_PLATFORM:-linux/arm64}
+    restart: unless-stopped
+    shm_size: 256mb
+    env_file:
+      - .env.production      # required — compose fails fast if it is missing
+    # POSTGRES_DB / POSTGRES_USER / POSTGRES_PASSWORD are taken from
+    # .env.production (same file the app reads → always in sync).
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backend/db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    expose:
+      - "5432"
+    # Uncomment only for emergency DB access from the host:
+    # ports:
+    #   - "127.0.0.1:5432:5432"
+    networks:
+      - edge
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-postgres} -d $${POSTGRES_DB:-actuator_ai} -t 5"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    logging: *default-logging
+    # mem_limit: 2g
+
+networks:
+  # Dedicated bridge. Not `internal: true` — the app must reach the
+  # public LLM APIs — but only Caddy publishes host ports, so neither
+  # app nor postgres is reachable from outside the host.
+  edge:
+    name: actuator-edge
+    driver: bridge
 
 volumes:
   postgres_data:
+  caddy_data:
+  caddy_config:

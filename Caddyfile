@@ -1,29 +1,104 @@
-# Caddyfile for Actuator AI Production Reverse Proxy
+# ══════════════════════════════════════════════════════════════════════
+#  Actuator AI — Caddy 2 reverse proxy (Oracle Cloud / ARM64)
+#
+#  • Automatic HTTPS via Let's Encrypt (http-01 on :80, stored in the
+#    caddy_data volume, renewed automatically — no certbot, no cron)
+#  • HTTP → HTTPS redirect for the public domain
+#  • Explicit WebSocket Upgrade/Connection passthrough to app:8000
+#  • Streaming-friendly: responses are flushed token-by-token
+#
+#  DOMAIN and ACME_EMAIL come from .env.production (injected by compose).
+#  Validate any edit with:
+#    docker compose exec caddy caddy validate --config /etc/caddy/Caddyfile
+#    (or: docker compose run --rm caddy caddy validate --config /etc/caddy/Caddyfile)
+# ══════════════════════════════════════════════════════════════════════
+{
+	# ACME account email (Let's Encrypt expiry / rate-limit notices)
+	email {$ACME_EMAIL:admin@localhost}
 
-{$DOMAIN:localhost} {
-    # Automatic HTTPS via Let's Encrypt when DOMAIN is set to a public FQDN
-    # Falls back to local self-signed HTTPS if localhost
-
-    # Proxy all traffic including WebSockets to backend app
-    reverse_proxy app:8000 {
-        # WebSocket streaming buffers flush immediately
-        flush_interval -1
-    }
-
-    # Security headers
-    header {
-        X-Content-Type-Options nosniff
-        X-Frame-Options DENY
-        Referrer-Policy strict-origin-when-cross-origin
-        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
-    }
-
-    # Gzip / Zstandard compression for static web assets
-    encode zstd gzip
-
-    log {
-        output stdout
-        format console
-    }
+	servers {
+		# Streaming chat can idle between tokens for a long time.
+		# 0s = no limit, so the edge never cuts a live socket.
+		# read_header stays bounded against slowloris-style abuse.
+		timeouts {
+			read_body 0s
+			read_header 30s
+			write 0s
+			idle 0s
+		}
+	}
 }
 
+# ── Option A (default): custom domain → automatic TLS ──────────────────
+{$DOMAIN:localhost} {
+	encode zstd gzip
+
+	header {
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy strict-origin-when-cross-origin
+		Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+		Permissions-Policy "geolocation=(), microphone=(), camera=()"
+		-Server
+	}
+
+	# ── WebSocket traffic (chat streaming) ──────────────────────────────
+	# Match any request that asks to upgrade the connection…
+	@websockets {
+		header Connection *Upgrade*
+		header Upgrade *
+	}
+
+	# …and forward the Upgrade/Connection headers verbatim to the app.
+	# Caddy sets X-Forwarded-For / X-Forwarded-Proto / Host itself.
+	handle @websockets {
+		reverse_proxy app:8000 {
+			header_up Upgrade {>Upgrade}
+			header_up Connection {>Connection}
+			flush_interval -1 # push tokens the moment they are produced
+		}
+	}
+
+	# ── Everything else (React SPA, REST API, /health) ──────────────────
+	handle {
+		reverse_proxy app:8000 {
+			flush_interval -1 # streamed SSE/chunked responses stay live
+		}
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}
+
+# ── Option B: bare IP address (no DNS name yet) ────────────────────────
+# Let's Encrypt cannot issue certificates for raw IPs, so plain HTTP is
+# used here; comment out Option A and uncomment this block instead.
+# TLS can be added later with `tls internal` (self-signed) or once a
+# domain is pointed at the VM.
+#
+# http:// {
+#	encode zstd gzip
+#
+#	@websockets {
+#		header Connection *Upgrade*
+#		header Upgrade *
+#	}
+#	handle @websockets {
+#		reverse_proxy app:8000 {
+#			header_up Upgrade {>Upgrade}
+#			header_up Connection {>Connection}
+#			flush_interval -1
+#		}
+#	}
+#	handle {
+#		reverse_proxy app:8000 {
+#			flush_interval -1
+#		}
+#	}
+#	log {
+#		output stdout
+#		format console
+#	}
+# }

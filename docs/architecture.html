@@ -1,0 +1,1245 @@
+<title>Actuator AI Architecture</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap">
+
+<style>
+  /* ── Tokens ── */
+  :root {
+    --bg: #0d1117;
+    --surface: #161b22;
+    --surface2: #1c2333;
+    --surface3: #21262d;
+    --border: #30363d;
+    --border2: #21262d;
+    --text: #e6edf3;
+    --text2: #8b949e;
+    --text3: #6e7681;
+    --accent: #58a6ff;
+    --amber: #f0883e;
+    --emerald: #3fb950;
+    --violet: #bc8cff;
+    --rose: #ff7b72;
+    --cyan: #39d353;
+    --yellow: #d29922;
+    --panel-w: 360px;
+    --bottom-h: 64px;
+  }
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) {
+      --bg: #f6f8fa;
+      --surface: #ffffff;
+      --surface2: #f0f2f5;
+      --surface3: #e8ebef;
+      --border: #d0d7de;
+      --border2: #e8ebef;
+      --text: #1f2328;
+      --text2: #57606a;
+      --text3: #8c959f;
+      --accent: #0969da;
+      --amber: #bc4c00;
+      --emerald: #1a7f37;
+      --violet: #6e40c9;
+      --rose: #cf222e;
+      --cyan: #116329;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0d1117;
+    --surface: #161b22;
+    --surface2: #1c2333;
+    --surface3: #21262d;
+    --border: #30363d;
+    --border2: #21262d;
+    --text: #e6edf3;
+    --text2: #8b949e;
+    --text3: #6e7681;
+    --accent: #58a6ff;
+    --amber: #f0883e;
+    --emerald: #3fb950;
+    --violet: #bc8cff;
+    --rose: #ff7b72;
+    --cyan: #39d353;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; overflow: hidden; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* ── Top bar ── */
+  #topbar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 0 20px;
+    height: 52px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+    z-index: 10;
+  }
+  #topbar h1 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+    letter-spacing: 0.02em;
+  }
+  .version-badge {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent);
+    padding: 2px 8px;
+    border-radius: 4px;
+  }
+  .spacer { flex: 1; }
+  #topbar .legend-items {
+    display: flex;
+    gap: 16px;
+    align-items: center;
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    color: var(--text2);
+  }
+  .legend-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  #btn-flow {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    background: var(--accent);
+    color: #0d1117;
+    border: none;
+    border-radius: 5px;
+    padding: 6px 14px;
+    cursor: pointer;
+    transition: opacity 0.15s;
+    text-transform: uppercase;
+  }
+  #btn-flow:hover { opacity: 0.85; }
+  #btn-flow.active { background: var(--amber); }
+
+  /* ── Main content ── */
+  #main {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+    position: relative;
+  }
+
+  /* ── Canvas ── */
+  #canvas-wrap {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+    cursor: grab;
+  }
+  #canvas-wrap.grabbing { cursor: grabbing; }
+  #diagram-svg {
+    position: absolute;
+    top: 0; left: 0;
+    transform-origin: 0 0;
+    transition: none;
+    user-select: none;
+  }
+
+  /* ── Zoom controls ── */
+  #zoom-controls {
+    position: absolute;
+    bottom: 80px;
+    right: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    z-index: 5;
+  }
+  .zoom-btn {
+    width: 32px; height: 32px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text2);
+    font-size: 18px;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.12s, color 0.12s;
+  }
+  .zoom-btn:hover { background: var(--surface3); color: var(--text); }
+  #zoom-level {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--text3);
+    text-align: center;
+    padding: 2px 0;
+  }
+
+  /* ── Detail Panel ── */
+  #panel {
+    width: var(--panel-w);
+    background: var(--surface);
+    border-left: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    transform: translateX(var(--panel-w));
+    transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    overflow: hidden;
+    flex-shrink: 0;
+  }
+  #panel.open { transform: translateX(0); }
+  #panel-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    padding: 16px 20px 14px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  #panel-name {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+    line-height: 1.3;
+  }
+  #panel-role {
+    font-size: 11px;
+    color: var(--text3);
+    margin-top: 3px;
+    font-weight: 500;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  #panel-close {
+    background: none;
+    border: none;
+    color: var(--text3);
+    font-size: 18px;
+    cursor: pointer;
+    padding: 2px 4px;
+    border-radius: 4px;
+    flex-shrink: 0;
+    transition: color 0.12s;
+  }
+  #panel-close:hover { color: var(--text); }
+  #panel-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+  .panel-section-title {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text3);
+    margin-bottom: 8px;
+  }
+  .panel-section { display: flex; flex-direction: column; }
+  .panel-desc {
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--text2);
+  }
+  .tag-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .tag {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    padding: 3px 8px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    color: var(--text2);
+    background: var(--surface2);
+  }
+  .tag.endpoint {
+    color: var(--accent);
+    border-color: color-mix(in srgb, var(--accent) 30%, transparent);
+    background: color-mix(in srgb, var(--accent) 8%, transparent);
+  }
+  .tag.file-path {
+    color: var(--emerald);
+    border-color: color-mix(in srgb, var(--emerald) 30%, transparent);
+    background: color-mix(in srgb, var(--emerald) 8%, transparent);
+    word-break: break-all;
+    white-space: normal;
+    display: block;
+    width: 100%;
+  }
+  .tag.schema-field {
+    color: var(--violet);
+    border-color: color-mix(in srgb, var(--violet) 30%, transparent);
+    background: color-mix(in srgb, var(--violet) 8%, transparent);
+  }
+  .panel-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 4px 10px;
+    border-radius: 5px;
+    margin-bottom: 2px;
+  }
+  .badge-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  /* ── Flow playback bar ── */
+  #playbar {
+    height: var(--bottom-h);
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    padding: 0 20px;
+    gap: 14px;
+    flex-shrink: 0;
+    position: relative;
+    overflow: hidden;
+  }
+  #playbar.hidden { display: none; }
+  #play-step-info {
+    flex: 1;
+    min-width: 0;
+  }
+  #play-step-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--accent);
+    letter-spacing: 0.04em;
+  }
+  #play-step-desc {
+    font-size: 12px;
+    color: var(--text2);
+    margin-top: 2px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .play-btn {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    color: var(--text2);
+    padding: 6px 12px;
+    cursor: pointer;
+    transition: background 0.12s, color 0.12s;
+    white-space: nowrap;
+  }
+  .play-btn:hover { background: var(--surface3); color: var(--text); }
+  .play-btn:disabled { opacity: 0.35; cursor: default; }
+  #play-counter {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--text3);
+    white-space: nowrap;
+  }
+  #play-dots {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+  }
+  .play-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--border);
+    transition: background 0.2s, transform 0.2s;
+    cursor: pointer;
+  }
+  .play-dot.active {
+    background: var(--accent);
+    transform: scale(1.4);
+  }
+  .play-dot.done { background: color-mix(in srgb, var(--accent) 40%, transparent); }
+
+  /* ── SVG node styles (inline in SVG) ── */
+  .node-group { cursor: pointer; }
+  .node-group:focus { outline: none; }
+  .node-rect {
+    stroke-width: 1.5;
+    rx: 8;
+    transition: filter 0.15s;
+  }
+  .node-group:hover .node-rect, .node-group.selected .node-rect {
+    filter: brightness(1.18) drop-shadow(0 0 8px currentColor);
+  }
+  .node-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    font-weight: 600;
+    fill: #e6edf3;
+    text-anchor: middle;
+    dominant-baseline: central;
+    pointer-events: none;
+    letter-spacing: 0.02em;
+  }
+  .node-sublabel {
+    font-family: 'Inter', sans-serif;
+    font-size: 10px;
+    fill: rgba(139,148,158,0.9);
+    text-anchor: middle;
+    pointer-events: none;
+  }
+  .node-icon {
+    font-size: 16px;
+    text-anchor: middle;
+    dominant-baseline: central;
+    pointer-events: none;
+  }
+  .edge {
+    fill: none;
+    stroke-width: 1.5;
+    stroke-linecap: round;
+    opacity: 0.55;
+    transition: opacity 0.2s, stroke-width 0.2s;
+  }
+  .edge.primary {
+    stroke-width: 2.5;
+    opacity: 0.9;
+    stroke-dasharray: none;
+  }
+  .edge.mcp {
+    stroke-dasharray: 5 4;
+    opacity: 0.6;
+  }
+  .edge.highlighted {
+    opacity: 1;
+    stroke-width: 3;
+    filter: drop-shadow(0 0 4px currentColor);
+  }
+  .edge.dimmed { opacity: 0.08; }
+  .boundary-rect {
+    fill: none;
+    stroke-dasharray: 6 4;
+    stroke-width: 1;
+    rx: 12;
+    pointer-events: none;
+  }
+  .boundary-label {
+    font-family: 'Inter', sans-serif;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    pointer-events: none;
+  }
+  .flow-pulse {
+    pointer-events: none;
+    opacity: 0;
+  }
+  .flow-pulse.active {
+    opacity: 1;
+    animation: pulse-move 0.9s ease-in-out forwards;
+  }
+  @keyframes pulse-move {
+    0% { opacity: 0; offset-distance: 0%; }
+    10% { opacity: 1; }
+    90% { opacity: 1; }
+    100% { opacity: 0; offset-distance: 100%; }
+  }
+  .guardrail-stripe {
+    fill: url(#guardrail-pattern);
+    opacity: 0.07;
+    rx: 8;
+    pointer-events: none;
+  }
+
+  /* ── Responsive ── */
+  @media (max-width: 700px) {
+    :root { --panel-w: 100vw; }
+    #topbar .legend-items { display: none; }
+    #topbar h1 { font-size: 12px; }
+  }
+</style>
+
+<!-- Top bar -->
+<div id="topbar">
+  <h1>ACTUATOR AI</h1>
+  <span class="version-badge">Runtime Architecture</span>
+  <div class="legend-items">
+    <span class="legend-item"><span class="legend-dot" style="background:#58a6ff"></span>Core Backend</span>
+    <span class="legend-item"><span class="legend-dot" style="background:#bc8cff"></span>Agent Layer</span>
+    <span class="legend-item"><span class="legend-dot" style="background:#3fb950"></span>Storage</span>
+    <span class="legend-item"><span class="legend-dot" style="background:#f0883e"></span>External</span>
+    <span class="legend-item"><span class="legend-dot" style="background:#ff7b72"></span>Guardrails</span>
+  </div>
+  <span class="spacer"></span>
+  <button id="btn-flow">▶ Trace Primary Flow</button>
+</div>
+
+<!-- Main canvas + panel -->
+<div id="main">
+  <div id="canvas-wrap">
+    <svg id="diagram-svg" xmlns="http://www.w3.org/2000/svg"></svg>
+    <div id="zoom-controls">
+      <button class="zoom-btn" id="btn-zoom-in" title="Zoom in">+</button>
+      <div id="zoom-level">100%</div>
+      <button class="zoom-btn" id="btn-zoom-out" title="Zoom out">−</button>
+      <button class="zoom-btn" id="btn-zoom-fit" title="Fit view" style="font-size:12px">⊡</button>
+    </div>
+  </div>
+  <div id="panel">
+    <div id="panel-header">
+      <div>
+        <div id="panel-name">Component</div>
+        <div id="panel-role">Layer</div>
+      </div>
+      <button id="panel-close" title="Close">×</button>
+    </div>
+    <div id="panel-body"></div>
+  </div>
+</div>
+
+<!-- Flow playback bar -->
+<div id="playbar" class="hidden">
+  <button class="play-btn" id="btn-prev">‹ Prev</button>
+  <div id="play-step-info">
+    <div id="play-step-label">STEP 1 / 12</div>
+    <div id="play-step-desc">Client opens WebSocket connection</div>
+  </div>
+  <div id="play-dots"></div>
+  <span id="play-counter"></span>
+  <button class="play-btn" id="btn-next">Next ›</button>
+  <button class="play-btn" id="btn-stop">✕ Exit</button>
+</div>
+
+<script>
+// ── Data ─────────────────────────────────────────────────
+const W = 1300, H = 820;
+
+const nodes = [
+  // id, label, sublabel, x, y, w, h, color (stroke+fill base), layer, icon
+  { id: 'browser', label: 'React SPA', sublabel: 'BrowserRouter + Zustand', x: 60, y: 200, w: 140, h: 72, color: '#58a6ff', layer: 'client', icon: '🌐',
+    detail: {
+      role: 'Client Layer',
+      desc: 'React 19 single-page app served from frontend/dist via FastAPI static mount. Uses Zustand for state, WebSocket for streaming, BrowserRouter for routing.',
+      endpoints: ['/  (LandingPage)', '/login  (EnhancedAuth)', '/docs  (Docs)'],
+      files: ['frontend/src/App.tsx', 'frontend/src/api.ts', 'frontend/src/store.ts', 'frontend/src/EnhancedAuth.tsx'],
+      schema: ['useChatStore: user, messages, conversationId, activeAgent', 'streamMessage() → WebSocket → JSON events', 'JWT in store.user.token'],
+      tags: ['React 19', 'Zustand', 'marked.js', 'framer-motion', 'lucide-react']
+    }
+  },
+  { id: 'caddy', label: 'Caddy 2', sublabel: 'Reverse Proxy / TLS', x: 60, y: 370, w: 140, h: 72, color: '#f0883e', layer: 'infra', icon: '🔒',
+    detail: {
+      role: 'Infra · External Edge',
+      desc: 'Caddy reverse proxy handles TLS termination, HSTS headers, gzip/zstd compression, and WebSocket pass-through to the app container on port 8000.',
+      endpoints: [':80 → redirect HTTPS', ':443 → reverse_proxy app:8000', 'WS flush_interval: -1 (immediate)'],
+      files: ['Caddyfile', 'docker-compose.yml'],
+      schema: ['DOMAIN env var', 'X-Content-Type-Options nosniff', 'X-Frame-Options DENY', 'HSTS 1yr'],
+      tags: ['docker-compose.yml', 'Let\'s Encrypt', 'Auto-HTTPS']
+    }
+  },
+  { id: 'fastapi', label: 'FastAPI', sublabel: 'Uvicorn · port 8000', x: 280, y: 290, w: 148, h: 72, color: '#58a6ff', layer: 'backend', icon: '⚡',
+    detail: {
+      role: 'Core Backend',
+      desc: 'FastAPI ASGI app with lifespan-managed SQLModel table creation. Serves the React SPA as static files in production. Three router prefixes under /api/v1.',
+      endpoints: ['WS  /api/v1/chat/ws', 'GET /api/v1/chat/conversations', 'GET /api/v1/agents/', 'POST /api/v1/auth/login', 'POST /api/v1/auth/signup', 'GET /health'],
+      files: ['backend/main.py', 'backend/api/routes/chat.py', 'backend/api/routes/agents.py', 'backend/api/routes/auth.py', 'backend/api/schemas.py'],
+      schema: ['CORSMiddleware (env-driven origins)', 'SQLModel.metadata.create_all on startup', 'Static mount: frontend/dist'],
+      tags: ['FastAPI', 'SQLModel', 'Uvicorn', 'python-jwt', 'bcrypt']
+    }
+  },
+  { id: 'auth', label: 'Auth Service', sublabel: 'JWT · bcrypt', x: 460, y: 150, w: 140, h: 72, color: '#f0883e', layer: 'backend', icon: '🛡',
+    detail: {
+      role: 'Auth / Security',
+      desc: 'JWT-based auth with bcrypt password hashing. 7-day token TTL. Signup auto-syncs new users into customer_contacts, customers, and subscriptions tables via psycopg2.',
+      endpoints: ['POST /api/v1/auth/signup', 'POST /api/v1/auth/login'],
+      files: ['backend/api/routes/auth.py', 'backend/core/config.py'],
+      schema: ['Customer(email, hashed_password, plan, status)', 'JWT: sub=email, exp=7d', 'SECRET_KEY from .env (enforced in prod)'],
+      tags: ['python-jwt HS256', 'bcrypt', 'pydantic-settings']
+    }
+  },
+  { id: 'agentsvc', label: 'Agent Service', sublabel: 'Orchestration Core', x: 460, y: 290, w: 148, h: 72, color: '#bc8cff', layer: 'agents', icon: '🤖',
+    detail: {
+      role: 'Agent Orchestration',
+      desc: 'Bridges FastAPI WebSocket to the OpenAI Agents SDK. Creates request-isolated agent copies to prevent shared-singleton race conditions. Semaphore caps 10 concurrent requests.',
+      endpoints: ['run_chat_stream(message, conv_id, db, email, images) → AsyncGenerator'],
+      files: ['backend/services/agent_service.py'],
+      schema: ['asyncio.Semaphore(10)', 'copy.copy(supervisor) per request', 'MCP lifecycle: connect → run → cleanup', 'Image OCR via Pillow + pytesseract'],
+      tags: ['OpenAI Agents SDK 0.13.6', 'Runner.run_streamed()', 'InputGuardrailTripwireTriggered']
+    }
+  },
+  { id: 'guardrails', label: 'Guardrail Pipeline', sublabel: '3-layer input safety', x: 460, y: 430, w: 148, h: 72, color: '#ff7b72', layer: 'safety', icon: '🚧',
+    detail: {
+      role: 'Safety Layer',
+      desc: 'Three sequential input guardrails on Supervisor Router (and specialist agents): jailbreak patterns, PII (CC#/SSN regex), SQL injection keywords. Blocked messages are not persisted to DB.',
+      endpoints: ['@input_guardrail: detect_jailbreak', '@input_guardrail: detect_pii', '@input_guardrail: detect_sql_injection', '@output_guardrail: check_response_length (3000 char)'],
+      files: ['shared/guardrails/safety.py'],
+      schema: ['GuardrailFunctionOutput(tripwire_triggered)', 'Blocked message deleted from DB (never contaminate history)', 'agent_name="Guardrail" stored on blocked response'],
+      tags: ['jailbreak patterns', 'PII regex', 'SQL injection keywords', 'response length']
+    }
+  },
+  { id: 'supervisor', label: 'Supervisor Router', sublabel: 'OpenAI Agents SDK', x: 680, y: 200, w: 152, h: 72, color: '#bc8cff', layer: 'agents', icon: '🎯',
+    detail: {
+      role: 'Agent · Supervisor',
+      desc: 'Central routing agent. Receives every message first. Runs classify_request() (keyword scoring across 7 categories), then hands off to specialist via SDK native handoff mechanism. Max 30 turns.',
+      endpoints: ['classify_request(message)', 'escalate_to_human(reason, email, summary)', 'register_customer()', 'update_customer_profile()', 'change_plan()'],
+      files: ['actuator_agents/supervisor_router/agent.py'],
+      schema: ['handoffs: 7 specialist agents', 'guardrails: jailbreak + PII + SQL injection', 'model: get_model() → factory → Gemini/OmniRouter/OpenAI', 'temperature: 0.2, max_tokens: 800'],
+      tags: ['keyword scoring', 'HITL interruptions', 'context: {customer_email}']
+    }
+  },
+  { id: 'specialists', label: '7 Specialist Agents', sublabel: 'Domain experts', x: 900, y: 200, w: 152, h: 72, color: '#bc8cff', layer: 'agents', icon: '👥',
+    detail: {
+      role: 'Agent · Specialists',
+      desc: 'Seven domain-specific agents, each with function_tools and MCP access. Each agent is isolated (copy.copy) per request. Refund tool has needs_approval=True → HITL interruption.',
+      endpoints: ['Technical Specialist · diagnose_service, check_system_status, create_support_ticket', 'Account Security · unlock_account, 2FA, password_reset', 'Billing Finance · change_plan, process_refund (HITL), apply_credit', 'Success Retention · schedule_check_in, create_renewal_offer, log_churn_intervention', 'Operations Sync · update_crm_note, create_jira_ticket', 'Linguistic · detect_language, translate_text, analyze_sentiment', 'Audit · check_hallucination, check_policy_compliance, generate_qa_report'],
+      files: ['actuator_agents/technical_specialist/agent.py', 'actuator_agents/account_security/agent.py', 'actuator_agents/billing_finance/agent.py', 'actuator_agents/success_retention/agent.py', 'actuator_agents/operations_sync/agent.py', 'actuator_agents/linguistic/agent.py', 'actuator_agents/audit/agent.py'],
+      schema: ['temperature: 0.2–0.4', 'max_tokens: 800–1200', 'input_guardrails per agent', 'TERMINAL AGENT: no further handoff'],
+      tags: ['function_tool', 'mcp_servers=[mcp]', 'needs_approval=True (refund)']
+    }
+  },
+  { id: 'mcp', label: 'MCP Server', sublabel: '@mcp/server-postgres', x: 900, y: 380, w: 152, h: 72, color: '#39d353', layer: 'infra', icon: '🔌',
+    detail: {
+      role: 'MCP Bridge · Per-Request',
+      desc: 'Model Context Protocol stdio server wrapping PostgreSQL. Created fresh per WebSocket request (MCPServerStdio factory). Agents use "query" MCP tool for raw SQL. connect() → assign → run → cleanup().',
+      endpoints: ['MCPServerStdio: npx @modelcontextprotocol/server-postgres <db_url>', 'MCP tool: query(sql)', 'client_session_timeout_seconds: 30'],
+      files: ['shared/mcp_config.py'],
+      schema: ['create_mcp_postgres() factory', 'Per-request lifecycle: fresh instance', 'Prefers global mcp-server-postgres binary for speed', 'Falls back to npx'],
+      tags: ['MCPServerStdioParams', 'stdio transport', 'isolated lifecycle']
+    }
+  },
+  { id: 'llm', label: 'LLM Gateway', sublabel: 'Gemini / OmniRouter / OpenAI', x: 900, y: 60, w: 152, h: 72, color: '#f0883e', layer: 'external', icon: '✨',
+    detail: {
+      role: 'External · LLM Inference',
+      desc: 'Multi-provider factory with priority: (1) GEMINI_API_KEY → Google AI Studio OpenAI-compat endpoint, (2) OMNIROUTER_API_KEY → self-hosted gateway to 290+ providers, (3) OPENAI_API_KEY → direct OpenAI.',
+      endpoints: ['Gemini: https://generativelanguage.googleapis.com/v1beta/openai/', 'OmniRouter: http://127.0.0.1:20128/v1 (default)', 'OpenAI: api.openai.com/v1'],
+      files: ['shared/models/factory.py', 'shared/models/ollama_provider.py'],
+      schema: ['OpenAIChatCompletionsModel (Agents SDK)', 'AsyncOpenAI client', 'Default model: gemini-3.6-flash', 'set_tracing_disabled(True)'],
+      tags: ['GEMINI_API_KEY', 'OMNIROUTER_API_KEY', 'OPENAI_API_KEY', 'AsyncOpenAI']
+    }
+  },
+  { id: 'postgres', label: 'PostgreSQL 16', sublabel: '21 business tables', x: 680, y: 560, w: 152, h: 72, color: '#3fb950', layer: 'storage', icon: '🐘',
+    detail: {
+      role: 'Primary Storage',
+      desc: 'PostgreSQL 16 with 21-table schema covering the full SaaS support domain. Two access paths: SQLModel ORM (conversations/messages) and psycopg2 RealDictCursor (business tables). pool_pre_ping + keepalives for managed Postgres providers.',
+      endpoints: ['ORM: conversations, messages, customers, support_tickets', 'psycopg2: customers, invoices, payments, refunds, subscriptions, products, api_usage, feature_flags, security_events, audit_logs, escalations, notifications_log, knowledge_articles, ...'],
+      files: ['backend/db/schema.sql', 'backend/db/session.py', 'backend/models/conversation.py', 'shared/tools/db_tools.py'],
+      schema: ['pool_size=5, max_overflow=10', 'pool_pre_ping=True, pool_recycle=240s', 'keepalives_idle=30, keepalives_interval=10', 'Seeded from seed.sql.bak on startup'],
+      tags: ['SQLModel', 'psycopg2', 'RealDictCursor', 'Docker volume: postgres_data']
+    }
+  },
+  { id: 'notifications', label: 'Notifications', sublabel: 'SMTP · SendGrid · Slack', x: 680, y: 420, w: 148, h: 72, color: '#d29922', layer: 'external', icon: '📧',
+    detail: {
+      role: 'External · Notifications',
+      desc: 'Multi-path email dispatch: (1) SMTP if SMTP_HOST+SMTP_USER configured, (2) SendGrid API if SENDGRID_API_KEY set, (3) free prototype mode logs to DB notifications_log table. Slack webhooks optional.',
+      endpoints: ['send_email(to, subject, body, priority)', 'send_slack_message(channel, message)', 'fire_webhook(url, event_type, payload)'],
+      files: ['shared/tools/notification_tools.py'],
+      schema: ['SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD', 'SENDGRID_API_KEY', 'SLACK_WEBHOOK_URL', 'Fallback: INSERT INTO notifications_log'],
+      tags: ['smtplib', 'httpx', 'notifications_log table']
+    }
+  },
+  { id: 'dbtools', label: 'DB Tools', sublabel: 'function_tools for agents', x: 680, y: 60, w: 148, h: 72, color: '#58a6ff', layer: 'backend', icon: '🔧',
+    detail: {
+      role: 'Agent Toolkit',
+      desc: 'Shared function_tools used across agents. Wraps psycopg2 queries with _conn() context manager that guarantees conn.close() to prevent socket leaks. All writes via _execute().',
+      endpoints: ['lookup_customer_by_email(email)', 'register_customer(...)', 'search_customers(field, value)', 'cancel_subscription(email, reason)', 'get_billing_info(email)', 'create_support_ticket(...)', 'unlock_account(email)', 'change_plan(email, new_plan)'],
+      files: ['shared/tools/db_tools.py', 'shared/tools/notification_tools.py', 'shared/tools/time_tools.py', 'shared/tools/web_tools.py'],
+      schema: ['_conn() context manager → always conn.close()', '_query(sql, params) → list[dict]', '_execute(sql, params) → status str', 'RealDictCursor for dict rows'],
+      tags: ['@function_tool', 'psycopg2', '_conn context manager']
+    }
+  },
+];
+
+const edges = [
+  // from, to, color, type (primary|dashed|mcp), label
+  { from: 'browser', to: 'caddy', color: '#58a6ff', type: 'primary', label: 'HTTPS/WS' },
+  { from: 'caddy', to: 'fastapi', color: '#58a6ff', type: 'primary', label: 'proxy :8000' },
+  { from: 'browser', to: 'fastapi', color: '#58a6ff', type: 'default', label: 'REST /api/v1' },
+  { from: 'fastapi', to: 'auth', color: '#f0883e', type: 'default', label: 'auth routes' },
+  { from: 'fastapi', to: 'agentsvc', color: '#bc8cff', type: 'primary', label: 'WS chat' },
+  { from: 'agentsvc', to: 'guardrails', color: '#ff7b72', type: 'default', label: 'input check' },
+  { from: 'agentsvc', to: 'supervisor', color: '#bc8cff', type: 'primary', label: 'Runner.run_streamed()' },
+  { from: 'supervisor', to: 'specialists', color: '#bc8cff', type: 'primary', label: 'SDK handoff' },
+  { from: 'supervisor', to: 'llm', color: '#f0883e', type: 'default', label: 'LLM call' },
+  { from: 'specialists', to: 'llm', color: '#f0883e', type: 'default', label: 'LLM call' },
+  { from: 'specialists', to: 'mcp', color: '#39d353', type: 'mcp', label: 'MCP query' },
+  { from: 'mcp', to: 'postgres', color: '#39d353', type: 'primary', label: 'SQL' },
+  { from: 'agentsvc', to: 'postgres', color: '#3fb950', type: 'default', label: 'ORM persist' },
+  { from: 'auth', to: 'postgres', color: '#3fb950', type: 'default', label: 'user lookup' },
+  { from: 'specialists', to: 'dbtools', color: '#58a6ff', type: 'default', label: 'function_tools' },
+  { from: 'dbtools', to: 'postgres', color: '#3fb950', type: 'default', label: 'psycopg2' },
+  { from: 'dbtools', to: 'notifications', color: '#d29922', type: 'default', label: 'send' },
+  { from: 'supervisor', to: 'dbtools', color: '#58a6ff', type: 'default', label: 'tools' },
+];
+
+// Primary flow steps
+const flowSteps = [
+  { nodeId: 'browser',    edgeIdx: 0,  label: 'STEP 1 / 12', desc: 'React SPA sends WebSocket connection to /api/v1/chat/ws' },
+  { nodeId: 'caddy',      edgeIdx: 1,  label: 'STEP 2 / 12', desc: 'Caddy proxies WS to app:8000 with flush_interval -1' },
+  { nodeId: 'fastapi',    edgeIdx: 4,  label: 'STEP 3 / 12', desc: 'FastAPI receives WS, extracts message + JWT + images' },
+  { nodeId: 'agentsvc',   edgeIdx: 5,  label: 'STEP 4 / 12', desc: 'Agent Service acquires semaphore slot (max 10 concurrent)' },
+  { nodeId: 'guardrails', edgeIdx: null, label: 'STEP 5 / 12', desc: 'Input guardrails: jailbreak → PII → SQL injection scan' },
+  { nodeId: 'agentsvc',   edgeIdx: 6,  label: 'STEP 6 / 12', desc: 'create_mcp_postgres() + connect(); isolated agent copies created' },
+  { nodeId: 'supervisor', edgeIdx: 7,  label: 'STEP 7 / 12', desc: 'Supervisor calls classify_request(), selects specialist' },
+  { nodeId: 'specialists', edgeIdx: 10, label: 'STEP 8 / 12', desc: 'Specialist agent receives handoff, calls MCP query tool' },
+  { nodeId: 'mcp',        edgeIdx: 11, label: 'STEP 9 / 12', desc: 'MCP server executes SQL query against PostgreSQL' },
+  { nodeId: 'postgres',   edgeIdx: null, label: 'STEP 10 / 12', desc: 'PostgreSQL returns result rows to MCP → agent' },
+  { nodeId: 'agentsvc',   edgeIdx: 12, label: 'STEP 11 / 12', desc: 'Agent streams ResponseTextDeltaEvent chunks to client via WS' },
+  { nodeId: 'postgres',   edgeIdx: null, label: 'STEP 12 / 12', desc: 'Agent Service persists user + assistant messages, sends "done" event' },
+];
+
+// ── Build SVG ─────────────────────────────────────────────
+const svg = document.getElementById('diagram-svg');
+svg.setAttribute('width', W);
+svg.setAttribute('height', H);
+svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+
+// Defs
+const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+// Arrowhead markers per color
+const arrowColors = ['#58a6ff','#bc8cff','#3fb950','#39d353','#f0883e','#ff7b72','#d29922'];
+arrowColors.forEach(c => {
+  const m = document.createElementNS('http://www.w3.org/2000/svg', 'marker');
+  const cid = c.replace('#','');
+  m.setAttribute('id', `arrow-${cid}`);
+  m.setAttribute('markerWidth', '8'); m.setAttribute('markerHeight', '8');
+  m.setAttribute('refX', '6'); m.setAttribute('refY', '3');
+  m.setAttribute('orient', 'auto');
+  const poly = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+  poly.setAttribute('points', '0 0, 8 3, 0 6');
+  poly.setAttribute('fill', c);
+  poly.setAttribute('opacity', '0.8');
+  m.appendChild(poly);
+  defs.appendChild(m);
+});
+// Guardrail stripe pattern
+const pat = document.createElementNS('http://www.w3.org/2000/svg', 'pattern');
+pat.setAttribute('id','guardrail-pattern'); pat.setAttribute('patternUnits','userSpaceOnUse');
+pat.setAttribute('width','10'); pat.setAttribute('height','10');
+pat.setAttribute('patternTransform','rotate(45)');
+const pl = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+pl.setAttribute('x1','0'); pl.setAttribute('y1','0'); pl.setAttribute('x2','0'); pl.setAttribute('y2','10');
+pl.setAttribute('stroke','#ff7b72'); pl.setAttribute('stroke-width','3');
+pat.appendChild(pl);
+defs.appendChild(pat);
+svg.appendChild(defs);
+
+// Boundaries
+const boundaries = [
+  { label: 'PUBLIC INTERNET', x: 30, y: 170, w: 200, h: 310, color: '#f0883e' },
+  { label: 'AGENT LAYER', x: 450, y: 160, w: 630, h: 370, color: '#bc8cff' },
+  { label: 'DATA LAYER', x: 650, y: 530, w: 390, h: 120, color: '#3fb950' },
+  { label: 'LLM PROVIDERS', x: 870, y: 30, w: 210, h: 120, color: '#f0883e' },
+];
+boundaries.forEach(b => {
+  const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+  const r = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+  r.setAttribute('class', 'boundary-rect');
+  r.setAttribute('x', b.x); r.setAttribute('y', b.y);
+  r.setAttribute('width', b.w); r.setAttribute('height', b.h);
+  r.setAttribute('stroke', b.color); r.setAttribute('rx', 12);
+  g.appendChild(r);
+  const t = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+  t.setAttribute('class', 'boundary-label');
+  t.setAttribute('x', b.x + 10); t.setAttribute('y', b.y - 6);
+  t.setAttribute('fill', b.color); t.setAttribute('opacity', '0.7');
+  t.textContent = b.label;
+  g.appendChild(t);
+  svg.appendChild(g);
+});
+
+// Helper: get node center
+function nodeCenter(id) {
+  const n = nodes.find(x => x.id === id);
+  return { x: n.x + n.w/2, y: n.y + n.h/2 };
+}
+
+// Helper: get edge attachment point from node toward target
+function edgeAttach(fromId, toId, offset = 6) {
+  const f = nodes.find(x => x.id === fromId);
+  const t = nodes.find(x => x.id === toId);
+  const fc = { x: f.x + f.w/2, y: f.y + f.h/2 };
+  const tc = { x: t.x + t.w/2, y: t.y + t.h/2 };
+  const dx = tc.x - fc.x, dy = tc.y - fc.y;
+  const len = Math.sqrt(dx*dx + dy*dy);
+  const ux = dx/len, uy = dy/len;
+  // intersect with rect
+  const halfW = f.w/2 + offset, halfH = f.h/2 + offset;
+  const tx = ux !== 0 ? halfW / Math.abs(ux) : Infinity;
+  const ty = uy !== 0 ? halfH / Math.abs(uy) : Infinity;
+  const t_ = Math.min(tx, ty);
+  return { x: fc.x + ux * t_, y: fc.y + uy * t_ };
+}
+function edgeAttachEnd(fromId, toId, offset = 6) {
+  const f = nodes.find(x => x.id === fromId);
+  const t = nodes.find(x => x.id === toId);
+  const fc = { x: f.x + f.w/2, y: f.y + f.h/2 };
+  const tc = { x: t.x + t.w/2, y: t.y + t.h/2 };
+  const dx = fc.x - tc.x, dy = fc.y - tc.y;
+  const len = Math.sqrt(dx*dx + dy*dy);
+  const ux = dx/len, uy = dy/len;
+  const halfW = t.w/2 + offset, halfH = t.h/2 + offset;
+  const tx2 = ux !== 0 ? halfW / Math.abs(ux) : Infinity;
+  const ty2 = uy !== 0 ? halfH / Math.abs(uy) : Infinity;
+  const t_ = Math.min(tx2, ty2);
+  return { x: tc.x + ux * t_, y: tc.y + uy * t_ };
+}
+
+// Draw edges
+const edgeEls = [];
+edges.forEach((e, i) => {
+  const start = edgeAttach(e.from, e.to);
+  const end = edgeAttachEnd(e.from, e.to);
+  const midX = (start.x + end.x) / 2;
+  const midY = (start.y + end.y) / 2;
+  // Curve control
+  const dx = end.x - start.x, dy = end.y - start.y;
+  const len = Math.sqrt(dx*dx+dy*dy);
+  const curve = len > 120 ? 0.2 : 0.15;
+  const cx = midX - dy * curve;
+  const cy = midY + dx * curve;
+  const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  const d = `M ${start.x} ${start.y} Q ${cx} ${cy} ${end.x} ${end.y}`;
+  path.setAttribute('d', d);
+  path.setAttribute('class', `edge ${e.type === 'primary' ? 'primary' : e.type === 'mcp' ? 'mcp' : ''}`);
+  path.setAttribute('stroke', e.color);
+  const cid = e.color.replace('#','');
+  path.setAttribute('marker-end', `url(#arrow-${cid})`);
+  path.setAttribute('data-edge-idx', i);
+  // Label
+  if (e.label) {
+    const lt = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    lt.setAttribute('x', cx); lt.setAttribute('y', cy - 6);
+    lt.setAttribute('text-anchor', 'middle');
+    lt.setAttribute('font-family', 'JetBrains Mono, monospace');
+    lt.setAttribute('font-size', '9');
+    lt.setAttribute('fill', e.color);
+    lt.setAttribute('opacity', '0.6');
+    lt.setAttribute('pointer-events', 'none');
+    lt.textContent = e.label;
+    svg.appendChild(lt);
+  }
+  svg.appendChild(path);
+  edgeEls.push(path);
+});
+
+// Guardrail stripe overlay
+const guardrailNode = nodes.find(n => n.id === 'guardrails');
+const stripe = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+stripe.setAttribute('class', 'guardrail-stripe');
+stripe.setAttribute('x', guardrailNode.x); stripe.setAttribute('y', guardrailNode.y);
+stripe.setAttribute('width', guardrailNode.w); stripe.setAttribute('height', guardrailNode.h);
+stripe.setAttribute('rx', 8);
+svg.appendChild(stripe);
+
+// Draw nodes
+const nodeEls = {};
+nodes.forEach(n => {
+  const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+  g.setAttribute('class', 'node-group');
+  g.setAttribute('tabindex', '0');
+  g.setAttribute('role', 'button');
+  g.setAttribute('aria-label', n.label);
+  g.setAttribute('data-node-id', n.id);
+
+  // Shadow
+  const shadow = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+  shadow.setAttribute('x', n.x + 3); shadow.setAttribute('y', n.y + 4);
+  shadow.setAttribute('width', n.w); shadow.setAttribute('height', n.h);
+  shadow.setAttribute('rx', 9);
+  shadow.setAttribute('fill', n.color);
+  shadow.setAttribute('opacity', '0.1');
+  g.appendChild(shadow);
+
+  // Main rect
+  const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+  rect.setAttribute('class', 'node-rect');
+  rect.setAttribute('x', n.x); rect.setAttribute('y', n.y);
+  rect.setAttribute('width', n.w); rect.setAttribute('height', n.h);
+  rect.setAttribute('rx', 8);
+  rect.setAttribute('fill', `color-mix(in srgb, ${n.color} 10%, #161b22)`);
+  rect.setAttribute('stroke', n.color);
+  rect.setAttribute('stroke-opacity', '0.6');
+  g.appendChild(rect);
+
+  // Icon
+  const icon = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+  icon.setAttribute('class', 'node-icon');
+  icon.setAttribute('x', n.x + 22); icon.setAttribute('y', n.y + n.h/2 - 6);
+  icon.textContent = n.icon;
+  g.appendChild(icon);
+
+  // Label
+  const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+  label.setAttribute('class', 'node-label');
+  label.setAttribute('x', n.x + n.w/2 + 6); label.setAttribute('y', n.y + n.h/2 - 8);
+  label.textContent = n.label;
+  g.appendChild(label);
+
+  // Sublabel
+  const sub = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+  sub.setAttribute('class', 'node-sublabel');
+  sub.setAttribute('x', n.x + n.w/2 + 6); sub.setAttribute('y', n.y + n.h/2 + 10);
+  sub.textContent = n.sublabel;
+  g.appendChild(sub);
+
+  svg.appendChild(g);
+  nodeEls[n.id] = g;
+
+  g.addEventListener('click', () => openPanel(n.id));
+  g.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' || ev.key === ' ') openPanel(n.id); });
+  g.addEventListener('mouseenter', () => highlightEdges(n.id));
+  g.addEventListener('mouseleave', () => clearHighlight());
+});
+
+// ── Pan & Zoom ─────────────────────────────────────────────
+let tx = 0, ty = 0, scale = 1;
+const wrap = document.getElementById('canvas-wrap');
+
+function applyTransform() {
+  svg.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
+  document.getElementById('zoom-level').textContent = Math.round(scale*100)+'%';
+}
+
+function fitView() {
+  const cw = wrap.clientWidth, ch = wrap.clientHeight;
+  const s = Math.min(cw / W, ch / H) * 0.92;
+  scale = s;
+  tx = (cw - W * s) / 2;
+  ty = (ch - H * s) / 2;
+  applyTransform();
+}
+
+// Initial fit on load
+window.addEventListener('load', fitView);
+window.addEventListener('resize', fitView);
+
+// Drag pan
+let dragging = false, dragStart = null;
+wrap.addEventListener('mousedown', e => {
+  if (e.target.closest('.node-group')) return;
+  dragging = true; dragStart = { x: e.clientX - tx, y: e.clientY - ty };
+  wrap.classList.add('grabbing');
+});
+window.addEventListener('mousemove', e => {
+  if (!dragging) return;
+  tx = e.clientX - dragStart.x; ty = e.clientY - dragStart.y;
+  applyTransform();
+});
+window.addEventListener('mouseup', () => { dragging = false; wrap.classList.remove('grabbing'); });
+
+// Wheel zoom
+wrap.addEventListener('wheel', e => {
+  e.preventDefault();
+  const factor = e.deltaY < 0 ? 1.1 : 0.9;
+  const rect = wrap.getBoundingClientRect();
+  const mx = e.clientX - rect.left;
+  const my = e.clientY - rect.top;
+  tx = mx - (mx - tx) * factor;
+  ty = my - (my - ty) * factor;
+  scale = Math.max(0.2, Math.min(3, scale * factor));
+  applyTransform();
+}, { passive: false });
+
+// Touch pan/zoom
+let lastTouches = null;
+wrap.addEventListener('touchstart', e => { lastTouches = e.touches; }, { passive: true });
+wrap.addEventListener('touchmove', e => {
+  if (e.touches.length === 1 && lastTouches) {
+    const dx = e.touches[0].clientX - lastTouches[0].clientX;
+    const dy = e.touches[0].clientY - lastTouches[0].clientY;
+    tx += dx; ty += dy; applyTransform();
+  } else if (e.touches.length === 2 && lastTouches?.length === 2) {
+    const d1 = Math.hypot(e.touches[0].clientX-e.touches[1].clientX, e.touches[0].clientY-e.touches[1].clientY);
+    const d0 = Math.hypot(lastTouches[0].clientX-lastTouches[1].clientX, lastTouches[0].clientY-lastTouches[1].clientY);
+    const f = d1/d0;
+    scale = Math.max(0.2, Math.min(3, scale * f));
+    applyTransform();
+  }
+  lastTouches = e.touches;
+}, { passive: true });
+
+document.getElementById('btn-zoom-in').addEventListener('click', () => {
+  scale = Math.min(3, scale * 1.2);
+  tx = wrap.clientWidth/2 - (wrap.clientWidth/2 - tx) * 1.2;
+  ty = wrap.clientHeight/2 - (wrap.clientHeight/2 - ty) * 1.2;
+  applyTransform();
+});
+document.getElementById('btn-zoom-out').addEventListener('click', () => {
+  const f = 1/1.2;
+  scale = Math.max(0.2, scale * f);
+  tx = wrap.clientWidth/2 - (wrap.clientWidth/2 - tx) * f;
+  ty = wrap.clientHeight/2 - (wrap.clientHeight/2 - ty) * f;
+  applyTransform();
+});
+document.getElementById('btn-zoom-fit').addEventListener('click', fitView);
+
+// ── Panel ─────────────────────────────────────────────────
+const panel = document.getElementById('panel');
+let selectedNode = null;
+
+function openPanel(id) {
+  const n = nodes.find(x => x.id === id);
+  if (!n) return;
+  selectedNode = id;
+  Object.values(nodeEls).forEach(el => el.classList.remove('selected'));
+  nodeEls[id].classList.add('selected');
+
+  document.getElementById('panel-name').textContent = n.label;
+  document.getElementById('panel-role').textContent = n.detail.role;
+
+  const body = document.getElementById('panel-body');
+  body.innerHTML = '';
+
+  // Badge
+  const badge = document.createElement('div');
+  badge.className = 'panel-badge';
+  badge.style.background = `color-mix(in srgb, ${n.color} 12%, transparent)`;
+  badge.style.color = n.color;
+  badge.style.border = `1px solid color-mix(in srgb, ${n.color} 25%, transparent)`;
+  badge.innerHTML = `<span class="badge-dot" style="background:${n.color}"></span>${n.detail.role}`;
+  body.appendChild(badge);
+
+  // Description
+  if (n.detail.desc) {
+    const s = document.createElement('div');
+    s.className = 'panel-section';
+    const t = document.createElement('div');
+    t.className = 'panel-section-title';
+    t.textContent = 'Description';
+    const d = document.createElement('div');
+    d.className = 'panel-desc';
+    d.textContent = n.detail.desc;
+    s.appendChild(t); s.appendChild(d);
+    body.appendChild(s);
+  }
+
+  // Endpoints / APIs
+  if (n.detail.endpoints?.length) {
+    const s = document.createElement('div');
+    s.className = 'panel-section';
+    const t = document.createElement('div');
+    t.className = 'panel-section-title';
+    t.textContent = 'Endpoints / Tools';
+    s.appendChild(t);
+    const tl = document.createElement('div');
+    tl.className = 'tag-list';
+    n.detail.endpoints.forEach(ep => {
+      const tag = document.createElement('span');
+      tag.className = 'tag endpoint';
+      tag.textContent = ep;
+      tl.appendChild(tag);
+    });
+    s.appendChild(tl);
+    body.appendChild(s);
+  }
+
+  // Schema / config
+  if (n.detail.schema?.length) {
+    const s = document.createElement('div');
+    s.className = 'panel-section';
+    const t = document.createElement('div');
+    t.className = 'panel-section-title';
+    t.textContent = 'Schema / Config';
+    s.appendChild(t);
+    const tl = document.createElement('div');
+    tl.className = 'tag-list';
+    n.detail.schema.forEach(f => {
+      const tag = document.createElement('span');
+      tag.className = 'tag schema-field';
+      tag.textContent = f;
+      tl.appendChild(tag);
+    });
+    s.appendChild(tl);
+    body.appendChild(s);
+  }
+
+  // File paths
+  if (n.detail.files?.length) {
+    const s = document.createElement('div');
+    s.className = 'panel-section';
+    const t = document.createElement('div');
+    t.className = 'panel-section-title';
+    t.textContent = 'Source Files';
+    s.appendChild(t);
+    const tl = document.createElement('div');
+    tl.className = 'tag-list';
+    tl.style.flexDirection = 'column';
+    n.detail.files.forEach(f => {
+      const tag = document.createElement('span');
+      tag.className = 'tag file-path';
+      tag.textContent = f;
+      tl.appendChild(tag);
+    });
+    s.appendChild(tl);
+    body.appendChild(s);
+  }
+
+  // Tags
+  if (n.detail.tags?.length) {
+    const s = document.createElement('div');
+    s.className = 'panel-section';
+    const t = document.createElement('div');
+    t.className = 'panel-section-title';
+    t.textContent = 'Stack / Tags';
+    s.appendChild(t);
+    const tl = document.createElement('div');
+    tl.className = 'tag-list';
+    n.detail.tags.forEach(tag => {
+      const el = document.createElement('span');
+      el.className = 'tag';
+      el.textContent = tag;
+      tl.appendChild(el);
+    });
+    s.appendChild(tl);
+    body.appendChild(s);
+  }
+
+  panel.classList.add('open');
+}
+
+document.getElementById('panel-close').addEventListener('click', () => {
+  panel.classList.remove('open');
+  if (selectedNode) nodeEls[selectedNode]?.classList.remove('selected');
+  selectedNode = null;
+});
+
+// ── Edge highlight ─────────────────────────────────────────
+function highlightEdges(nodeId) {
+  edgeEls.forEach((el, i) => {
+    const e = edges[i];
+    if (e.from === nodeId || e.to === nodeId) {
+      el.classList.add('highlighted');
+      el.classList.remove('dimmed');
+    } else {
+      el.classList.add('dimmed');
+      el.classList.remove('highlighted');
+    }
+  });
+}
+function clearHighlight() {
+  edgeEls.forEach(el => { el.classList.remove('highlighted','dimmed'); });
+}
+
+// ── Flow Playback ─────────────────────────────────────────
+let flowActive = false, flowStep = 0;
+const playbar = document.getElementById('playbar');
+const btnFlow = document.getElementById('btn-flow');
+const btnNext = document.getElementById('btn-next');
+const btnPrev = document.getElementById('btn-prev');
+const btnStop = document.getElementById('btn-stop');
+const playDots = document.getElementById('play-dots');
+
+// Build dots
+function buildDots() {
+  playDots.innerHTML = '';
+  flowSteps.forEach((_, i) => {
+    const d = document.createElement('div');
+    d.className = 'play-dot' + (i === flowStep ? ' active' : i < flowStep ? ' done' : '');
+    d.addEventListener('click', () => { flowStep = i; updateFlow(); });
+    playDots.appendChild(d);
+  });
+}
+
+function updateFlow() {
+  const step = flowSteps[flowStep];
+  document.getElementById('play-step-label').textContent = step.label;
+  document.getElementById('play-step-desc').textContent = step.desc;
+  document.getElementById('play-counter').textContent = `${flowStep+1} / ${flowSteps.length}`;
+  btnPrev.disabled = flowStep === 0;
+  btnNext.disabled = flowStep === flowSteps.length - 1;
+
+  // Highlight current node
+  Object.values(nodeEls).forEach(el => el.classList.remove('selected'));
+  nodeEls[step.nodeId]?.classList.add('selected');
+
+  // Highlight relevant edge
+  edgeEls.forEach((el, i) => {
+    if (i === step.edgeIdx) {
+      el.classList.add('highlighted'); el.classList.remove('dimmed');
+    } else if (step.edgeIdx !== null) {
+      el.classList.add('dimmed'); el.classList.remove('highlighted');
+    } else {
+      el.classList.remove('highlighted','dimmed');
+    }
+  });
+
+  // Update dots
+  playDots.querySelectorAll('.play-dot').forEach((d,i) => {
+    d.className = 'play-dot' + (i === flowStep ? ' active' : i < flowStep ? ' done' : '');
+  });
+
+  // Scroll node into view
+  const n = nodes.find(x => x.id === step.nodeId);
+  if (n) {
+    const cx = n.x + n.w/2, cy = n.y + n.h/2;
+    const tw = wrap.clientWidth, th = wrap.clientHeight;
+    const targetTx = tw/2 - cx * scale;
+    const targetTy = th/2 - cy * scale;
+    tx += (targetTx - tx) * 0.5;
+    ty += (targetTy - ty) * 0.5;
+    applyTransform();
+  }
+}
+
+btnFlow.addEventListener('click', () => {
+  if (flowActive) {
+    stopFlow();
+  } else {
+    startFlow();
+  }
+});
+
+function startFlow() {
+  flowActive = true;
+  flowStep = 0;
+  btnFlow.textContent = '■ Exit Flow';
+  btnFlow.classList.add('active');
+  playbar.classList.remove('hidden');
+  buildDots();
+  updateFlow();
+}
+
+function stopFlow() {
+  flowActive = false;
+  btnFlow.textContent = '▶ Trace Primary Flow';
+  btnFlow.classList.remove('active');
+  playbar.classList.add('hidden');
+  clearHighlight();
+  Object.values(nodeEls).forEach(el => el.classList.remove('selected'));
+}
+
+btnNext.addEventListener('click', () => { if (flowStep < flowSteps.length-1) { flowStep++; updateFlow(); } });
+btnPrev.addEventListener('click', () => { if (flowStep > 0) { flowStep--; updateFlow(); } });
+btnStop.addEventListener('click', stopFlow);
+
+// Keyboard navigation
+document.addEventListener('keydown', e => {
+  if (!flowActive) return;
+  if (e.key === 'ArrowRight' && flowStep < flowSteps.length-1) { flowStep++; updateFlow(); }
+  if (e.key === 'ArrowLeft' && flowStep > 0) { flowStep--; updateFlow(); }
+  if (e.key === 'Escape') stopFlow();
+});
+</script>

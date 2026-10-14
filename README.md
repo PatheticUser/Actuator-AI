@@ -825,45 +825,36 @@ cd frontend && npm test         # Frontend tests (scaffolding)
 
 ## Production Deployment
 
-### Docker Compose Reference
+Production runs as a single Docker Compose stack behind **Caddy 2** on
+Oracle Cloud Always Free (Ubuntu 24.04 ARM64 / Ampere A1).
+See **[DEPLOYMENT.md](./DEPLOYMENT.md)** for the full guide: Docker install,
+OCI VCN + Security List rules, `ufw`/`iptables` commands, health-check
+verification and day-2 operations.
 
-Note: The frontend is served from `backend/static/index.html` as the default static UI. To use the React SPA, build it separately (`cd frontend && npm run build`) and serve via a reverse proxy (Nginx/Caddy).
+```bash
+cp .env.production.example .env.production   # fill in secrets
+docker compose up -d --build
+curl -fsS https://<DOMAIN>/health
+```
 
 <details>
-<summary>Docker Compose configuration</summary>
+<summary>Stack layout (`docker-compose.yml`)</summary>
 
-```yaml
-version: '3.8'
-services:
-  postgres:
-    image: postgres:14
-    environment:
-      POSTGRES_DB: actuator_ai
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?err}
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./backend/db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
-      - ./backend/db/seed.sql:/docker-entrypoint-initdb.d/02-seed.sql
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+| Service | Image | Host ports | Notes |
+|---|---|---|---|
+| `caddy` | `caddy:2-alpine` | `80`, `443/tcp`, `443/udp` | Automatic Let's Encrypt TLS, WebSocket upgrade to `app:8000` |
+| `app` | built from `Dockerfile` | *(none)* | FastAPI + built React SPA, `expose: 8000` |
+| `postgres` | `postgres:16-alpine` | *(none)* | `expose: 5432`, data in the `postgres_data` volume |
 
-  app:
-    build: .
-    ports: ["8000:8000"]
-    environment:
-      POSTGRES_SERVER: postgres
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?err}
-      SECRET_KEY: ${SECRET_KEY:?err}
-    depends_on:
-      postgres: { condition: service_healthy }
-
-volumes:
-  postgres_data:
-```
+All three join the dedicated `actuator-edge` bridge network; only Caddy is
+reachable from outside the host. Every service sets
+`restart: unless-stopped`, a `healthcheck`, and Docker log rotation
+(`json-file`, 10 MB × 5). Base images and all locked wheels publish official
+`linux/arm64` builds.
 </details>
+
+In Docker the React SPA is compiled into the image (`frontend/dist`) and
+served by FastAPI; `backend/static/index.html` is only the local-dev fallback.
 
 ### Production Environment Variables
 
