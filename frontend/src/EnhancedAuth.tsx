@@ -41,9 +41,25 @@ export default function EnhancedAuth() {
   const [error, setError] = useState('')
   const [showFeatures, setShowFeatures] = useState(false)
 
+  const extractErrorMessage = (data: any) => {
+    // FastAPI 422 responses carry `detail` as an array of validation objects;
+    // other errors carry it as a plain string.
+    if (typeof data?.detail === 'string') return data.detail
+    if (Array.isArray(data?.detail)) {
+      return data.detail
+        .map((d: any) => d?.msg?.replace(/^Value error, /, '') || 'Validation error')
+        .join(' • ')
+    }
+    return 'Auth failed'
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
+    if (password.length < 8) {
+      setError('Password must be at least 8 characters long.')
+      return
+    }
     try {
       const endpoint = isLogin ? '/auth/login' : '/auth/signup'
       const body = isLogin ? { email, password } : { email, password, name }
@@ -53,10 +69,10 @@ export default function EnhancedAuth() {
         body: JSON.stringify(body)
       })
       const data = await res.json()
-      if (!res.ok) throw new Error(data.detail || 'Auth failed')
+      if (!res.ok) throw new Error(extractErrorMessage(data))
       store.setUser({ email: data.email, name: data.name, token: data.access_token })
     } catch (err: any) {
-      setError(err.message)
+      setError(err.message || 'Auth failed')
     }
   }
 
@@ -135,10 +151,11 @@ export default function EnhancedAuth() {
             <div className="input-group">
               <input
                 type="password"
-                placeholder="Password"
+                placeholder="Password (min 8 characters)"
                 value={password}
                 onChange={e => setPassword(e.target.value)}
                 required
+                minLength={8}
                 className="auth-input"
               />
             </div>

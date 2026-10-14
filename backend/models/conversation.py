@@ -1,6 +1,9 @@
 """backend/models/conversation.py — Conversation & Message DB Models"""
 
 from sqlmodel import SQLModel, Field, Relationship
+from sqlalchemy import Column
+from sqlalchemy.dialects.postgresql import ARRAY
+from sqlalchemy.sql.sqltypes import String
 from typing import Optional
 from datetime import datetime, timezone
 import uuid
@@ -39,14 +42,26 @@ class Customer(SQLModel, table=True):
 
 
 class SupportTicket(SQLModel, table=True):
+    """Support ticket — mirrors backend/db/schema.sql `support_tickets`.
+
+    MUST match that shape exactly: the same table is written by the agents'
+    db_tools (create_support_ticket) and seeded from schema.sql. Keeping the
+    two in sync prevents SQLModel's create_all from conflicting with the
+    business schema at startup.
+    """
     __tablename__ = "support_tickets"
-    id: str = Field(default_factory=lambda: f"TKT-{abs(hash(str(uuid.uuid4()))) % 100000:05d}", primary_key=True)
-    customer_email: str = Field(index=True)
-    category: str  # billing, technical, account, general
+    id: str = Field(primary_key=True)
+    customer_id: Optional[int] = Field(default=None)
+    contact_email: Optional[str] = Field(default=None, index=True)
+    category: str
     priority: str  # P1, P2, P3, P4
     subject: str
     description: Optional[str] = None
-    status: str = Field(default="open")  # open, in_progress, resolved, closed
+    status: str = Field(default="open")  # open, in_progress, waiting, resolved, closed
     assigned_to: Optional[str] = None
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    sla_deadline: Optional[datetime] = None
+    first_response_at: Optional[datetime] = None
     resolved_at: Optional[datetime] = None
+    satisfaction: Optional[int] = None
+    tags: Optional[list[str]] = Field(default=None, sa_column=Column(ARRAY(String)))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

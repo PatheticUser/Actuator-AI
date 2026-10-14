@@ -7,11 +7,13 @@ Connection uses rameez/pu00 @ actuator_ai.
 
 import contextlib
 import os
+import threading
 from datetime import datetime, timezone
 from agents import function_tool
 
 import psycopg2
 import psycopg2.extras
+import psycopg2.pool
 
 # libpq TCP keepalives: detect connections dropped by provider proxies
 _CONNECT_OPTS = {
@@ -22,59 +24,118 @@ _CONNECT_OPTS = {
     "keepalives_count": 5,
 }
 
+# Managed/serverless Postgres (Neon, etc.) takes seconds to establish a new
+# connection: TLS + startup + auth, plus a compute resume when the endpoint has
+# scaled to zero. Opening one per query made a single tool call cost 3-6s per
+# query. Pooled connections are checked out and returned instead, so the
+# handshake is paid once rather than on every tool call.
+_MIN_CONN = 1
+_MAX_CONN = 8
+
+_pool: psycopg2.pool.ThreadedConnectionPool | None = None
+_pool_lock = threading.Lock()
+
+
+def _connect_kwargs() -> dict:
+    """Connection arguments for psycopg2.connect()."""
+    db_url = os.getenv("DATABASE_URL")
+    if db_url:
+        return {"dsn": db_url, **_CONNECT_OPTS}
+    return {
+        "host": os.getenv("POSTGRES_SERVER", "localhost"),
+        "port": os.getenv("POSTGRES_PORT", "5432"),
+        "user": os.getenv("POSTGRES_USER", "postgres"),
+        "password": os.getenv("POSTGRES_PASSWORD", "postgres"),
+        "dbname": os.getenv("POSTGRES_DB", "actuator_ai"),
+        **_CONNECT_OPTS,
+    }
+
+
+def _get_pool() -> psycopg2.pool.ThreadedConnectionPool:
+    """Lazily create the shared connection pool (safe across threads)."""
+    global _pool
+    if _pool is None:
+        with _pool_lock:
+            if _pool is None:
+                _pool = psycopg2.pool.ThreadedConnectionPool(
+                    _MIN_CONN, _MAX_CONN, **_connect_kwargs()
+                )
+    return _pool
+
 
 @contextlib.contextmanager
 def _conn():
-    """Yield a database connection that is always closed on exit.
+    """Check out a pooled connection, always returning it to the pool.
 
-    Note: psycopg2's native `with conn:` commits/rolls back the transaction
-    but does NOT close the connection — it leaks sockets. This wrapper
-    guarantees conn.close(), so `with _conn() as conn:` works unchanged.
+    psycopg2's native `with conn:` commits/rolls back the transaction but does
+    NOT close the connection. Here the connection is returned to the pool so
+    `with _conn() as conn:` still works unchanged at every call site, with the
+    transaction finalized (committed if the caller left one open, rolled back on
+    error) before reuse.
+
+    A connection that fails at the protocol level is closed instead of pooled:
+    managed-Postgres proxies drop idle sockets, and handing a dead socket to the
+    next caller is what `pool_pre_ping` guards against elsewhere in this project.
     """
-    db_url = os.getenv("DATABASE_URL")
-    if db_url:
-        conn = psycopg2.connect(db_url, **_CONNECT_OPTS)
-    else:
-        conn = psycopg2.connect(
-            host=os.getenv("POSTGRES_SERVER", "localhost"),
-            port=os.getenv("POSTGRES_PORT", "5432"),
-            user=os.getenv("POSTGRES_USER", "postgres"),
-            password=os.getenv("POSTGRES_PASSWORD", "postgres"),
-            dbname=os.getenv("POSTGRES_DB", "actuator_ai"),
-            **_CONNECT_OPTS,
-        )
+    pool = _get_pool()
+    conn = pool.getconn()
+    broken = False
     try:
         yield conn
-    except Exception:
-        conn.rollback()
+    except Exception as exc:
+        broken = isinstance(exc, (psycopg2.OperationalError, psycopg2.InterfaceError))
+        try:
+            conn.rollback()
+        except Exception:
+            broken = True
         raise
     else:
         # Commit any transaction the caller left open (old `with conn:` behavior)
         if not conn.closed and conn.status != psycopg2.extensions.STATUS_READY:
             conn.commit()
     finally:
-        conn.close()
+        pool.putconn(conn, close=(broken or bool(conn.closed)))
+
+
+def _fetch(sql: str, params: tuple) -> list[dict]:
+    with _conn() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(sql, params)
+            return [dict(row) for row in cur.fetchall()]
 
 
 def _query(sql: str, params: tuple = ()) -> list[dict]:
     """Execute read query, return list of dicts."""
     try:
-        with _conn() as conn:
-            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-                cur.execute(sql, params)
-                return [dict(row) for row in cur.fetchall()]
+        return _fetch(sql, params)
+    except (psycopg2.OperationalError, psycopg2.InterfaceError):
+        # The pooled connection was dropped while idle. It has been discarded by
+        # _conn(), so retry once on a fresh one before reporting failure.
+        try:
+            return _fetch(sql, params)
+        except Exception as retry_err:
+            return [{"error": str(retry_err)}]
     except Exception as e:
         return [{"error": str(e)}]
 
 
 def _execute(sql: str, params: tuple = ()) -> str:
     """Execute write query, return status."""
-    try:
+    def _run() -> str:
         with _conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(sql, params)
                 conn.commit()
                 return f"OK — {cur.rowcount} row(s) affected"
+
+    try:
+        return _run()
+    except (psycopg2.OperationalError, psycopg2.InterfaceError):
+        # Same stale-connection retry as _query().
+        try:
+            return _run()
+        except Exception as retry_err:
+            return f"[ERROR] {retry_err}"
     except Exception as e:
         return f"[ERROR] {e}"
 
@@ -323,10 +384,10 @@ def get_billing_info(email: str) -> str:
 
     return (
         f"Billing for {r['company_name']}:\n"
-        f"  Plan: {r['plan_name']} | {r['currency'] if invoices else 'PKR'} {r['price_monthly']:,.0f}/mo\n"
+        f"  Plan: {r['plan_name']} | {r['currency'] if invoices and 'error' not in invoices[0] else 'PKR'} {r['price_monthly']:,.0f}/mo\n"
         f"  Subscription: {r['sub_status'].upper()} | Cycle: {r['billing_cycle']}\n"
         f"  Period ends: {r['current_period_end']} | Auto-renew: {'Yes' if r['auto_renew'] else 'No'}\n"
-        f"  Recent invoices:\n" + "\n".join(inv_lines) if inv_lines else "  No invoices found."
+        + ("  Recent invoices:\n" + "\n".join(inv_lines) if inv_lines else "  No invoices found.")
     )
 
 

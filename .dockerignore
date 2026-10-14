@@ -23,14 +23,17 @@ wheels/
 *.swp
 *.swo
 
+# README must stay: pyproject.toml declares readme = "README.md"
+!README.md
+
 # Environment & secrets
 .env
 .env.*
 !.env.example
 
 # Documentation & scripts
-README.md
 *.md
+!README.md
 run.bat
 run.sh
 LICENSE

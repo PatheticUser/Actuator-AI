@@ -105,6 +105,30 @@ except Exception:
     HAS_IMAGE_OCR = False
 
 
+# Messages that indicate a transient provider-side problem (overload, rate
+# limit, upstream 5xx) — the user should just retry, not rephrase.
+_TRANSIENT_MARKERS = (
+    "503", "502", "504", "429", "unavailable", "high demand",
+    "overloaded", "rate limit", "temporarily", "try again later",
+)
+
+
+def _friendly_error_msg(error_detail: str) -> str:
+    """Map raw LLM-provider exceptions to user-facing messages."""
+    lowered = error_detail.lower()
+    if any(marker in lowered for marker in _TRANSIENT_MARKERS):
+        return (
+            "The AI provider is experiencing heavy traffic right now and couldn't "
+            "process your request. Please try again in a moment — no changes "
+            "were made to the conversation."
+        )
+    if "Max turns" in error_detail:
+        return "I've reached my maximum analysis limit for this turn. Could you please clarify your request or provide more context so I can better assist you."
+    if "Tool" in error_detail and "not found" in error_detail:
+        return "I encountered a synchronization issue while connecting with a specialist. Please try rephrasing your request slightly."
+    return f"Agent error: {error_detail}"
+
+
 def extract_image_content(data_url: str) -> str:
     """Extract dimensions, metadata, and full OCR text from image Data URL."""
     try:
@@ -291,11 +315,7 @@ async def run_chat_stream(
         print(f"⚠ Agent error: {error_detail}")
         traceback.print_exc()
 
-        friendly_msg = f"Agent error: {error_detail}"
-        if "Max turns" in error_detail:
-            friendly_msg = "I've reached my maximum analysis limit for this turn. Could you please clarify your request or provide more context so I can better assist you."
-        elif "Tool" in error_detail and "not found" in error_detail:
-            friendly_msg = "I encountered a synchronization issue while connecting with a specialist. Please try rephrasing your request slightly."
+        friendly_msg = _friendly_error_msg(error_detail)
 
         # Save whatever we have — user message already saved, now save partial/error response
         assistant_msg = Message(

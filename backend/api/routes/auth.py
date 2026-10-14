@@ -1,6 +1,7 @@
 """backend/api/routes/auth.py — Authentication API endpoints"""
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlmodel import Session, select
 from pydantic import BaseModel, EmailStr, field_validator
 import jwt
@@ -16,6 +17,34 @@ ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7 days
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
+
+_bearer_scheme = HTTPBearer(auto_error=False)
+
+
+def get_user_email_from_token(
+    credentials: HTTPAuthorizationCredentials | None = Depends(_bearer_scheme),
+) -> str:
+    """Auth dependency for protected endpoints.
+
+    Extracts and validates the JWT from the Authorization: Bearer header and
+    returns the subject email. Raises 401/403 on missing/invalid tokens.
+    """
+    if credentials is None or not credentials.credentials:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    try:
+        payload = jwt.decode(credentials.credentials, SECRET_KEY, algorithms=[ALGORITHM])
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token expired", headers={"WWW-Authenticate": "Bearer"})
+    except jwt.PyJWTError:
+        raise HTTPException(status_code=401, detail="Invalid token", headers={"WWW-Authenticate": "Bearer"})
+    email = payload.get("sub")
+    if not email:
+        raise HTTPException(status_code=401, detail="Invalid token payload")
+    return email
 
 
 

@@ -1,12 +1,15 @@
 """backend/api/routes/chat.py — Chat API endpoints"""
 
+import json
+import jwt
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from sqlmodel import Session, select
-import json
 
+from backend.core.config import settings
 from backend.db.session import get_session
 from backend.models.conversation import Conversation, Message
-from backend.api.schemas import ChatRequest, ChatResponse, ConversationResponse, MessageResponse
+from backend.api.schemas import ConversationResponse, MessageResponse
+from backend.api.routes.auth import get_user_email_from_token
 from backend.services.agent_service import run_chat_stream
 
 router = APIRouter(prefix="/chat", tags=["Chat"])
@@ -14,36 +17,68 @@ router = APIRouter(prefix="/chat", tags=["Chat"])
 
 @router.websocket("/ws")
 async def chat_websocket(websocket: WebSocket, db: Session = Depends(get_session)):
-    """WebSocket endpoint for streaming chat responses."""
+    """WebSocket endpoint for streaming chat responses.
+
+    Auth model:
+      - A valid JWT is REQUIRED (sent in the first message body or as
+        ?token= query param). Cross-site WebSocket hijacking is prevented
+        both by the origin check and by requiring authentication.
+      - The token subject is the authoritative customer_email.
+    """
+    # CORSMiddleware never runs for WebSocket connections, so enforce the
+    # allowed-origin list here to prevent cross-site WebSocket hijacking.
+    # is_allowed_origin() also trusts loopback origins so the local Vite dev
+    # server (proxied to this backend) can connect.
+    origin = websocket.headers.get("origin")
+    if not settings.is_allowed_origin(origin):
+        print(f"WebSocket rejected: origin {origin!r} not in CORS_ORIGINS")
+        await websocket.close(code=1008)  # policy violation
+        return
+
+    # Token may arrive as a query param or inside the first frame.
+    token = websocket.query_params.get("token") or ""
+
     await websocket.accept()
     try:
         # Receive the first configuration/start message
         data = await websocket.receive_text()
         req_data = json.loads(data)
-        
+        token = req_data.get("token") or token
+
+        if not token:
+            await websocket.send_text(json.dumps({
+                "type": "error",
+                "content": "Authentication required.",
+            }))
+            await websocket.close(code=1008)
+            return
+
+        # Verify JWT; invalid/expired tokens must never impersonate an email.
+        try:
+            payload = jwt.decode(token, settings.SECRET_KEY, algorithms=["HS256"])
+            customer_email = payload.get("sub") or ""
+        except jwt.PyJWTError:
+            await websocket.send_text(json.dumps({
+                "type": "error",
+                "content": "Invalid or expired session. Please log in again.",
+            }))
+            await websocket.close(code=1008)
+            return
+
         message = req_data.get("message", "")
         conversation_id = req_data.get("conversation_id")
-        customer_email = req_data.get("customer_email")
         images = req_data.get("images", [])
-        token = req_data.get("token") or websocket.query_params.get("token")
-
-        # Optional JWT verification for authenticated sessions
-        if token:
-            try:
-                import jwt
-                from backend.core.config import settings
-                payload = jwt.decode(token, settings.SECRET_KEY, algorithms=["HS256"])
-                token_email = payload.get("sub")
-                if token_email and not customer_email:
-                    customer_email = token_email
-            except Exception:
-                pass
 
         if conversation_id:
             conversation = db.get(Conversation, conversation_id)
+            # Ownership check: never stream into another user's conversation.
             if not conversation:
                 await websocket.send_text(json.dumps({"type": "error", "content": "Conversation not found."}))
                 await websocket.close()
+                return
+            if conversation.customer_email and conversation.customer_email != customer_email:
+                await websocket.send_text(json.dumps({"type": "error", "content": "Not your conversation."}))
+                await websocket.close(code=1008)
                 return
             conv_id = conversation.id
         else:
@@ -76,7 +111,7 @@ async def chat_websocket(websocket: WebSocket, db: Session = Depends(get_session
         print(f"WebSocket Error: {e}")
         try:
             await websocket.close()
-        except:
+        except Exception:
             pass
 
 
@@ -85,12 +120,22 @@ def list_conversations(
     email: str | None = None,
     status: str = "all",
     limit: int = 50,
+    token_email: str = Depends(get_user_email_from_token),
     db: Session = Depends(get_session),
 ):
-    """List recent conversations, optionally filtered by user email."""
-    query = select(Conversation).order_by(Conversation.started_at.desc()).limit(limit)
-    if email:
-        query = query.where(Conversation.customer_email.ilike(email))
+    """List recent conversations for the authenticated user.
+
+    The email query param is honored only if it matches the JWT subject —
+    callers can never enumerate other users' conversations.
+    """
+    if email and email != token_email:
+        raise HTTPException(status_code=403, detail="Cannot read other users' conversations.")
+    query = (
+        select(Conversation)
+        .where(Conversation.customer_email == token_email)
+        .order_by(Conversation.started_at.desc())
+        .limit(limit)
+    )
     if status != "all":
         query = query.where(Conversation.status == status)
     conversations = db.exec(query).all()
@@ -98,11 +143,17 @@ def list_conversations(
 
 
 @router.get("/conversations/{conversation_id}/messages", response_model=list[MessageResponse])
-def get_messages(conversation_id: str, db: Session = Depends(get_session)):
-    """Get all messages in a conversation."""
+def get_messages(
+    conversation_id: str,
+    token_email: str = Depends(get_user_email_from_token),
+    db: Session = Depends(get_session),
+):
+    """Get all messages in a conversation owned by the authenticated user."""
     conv = db.get(Conversation, conversation_id)
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found.")
+    if conv.customer_email and conv.customer_email != token_email:
+        raise HTTPException(status_code=403, detail="Not your conversation.")
 
     messages = db.exec(
         select(Message)
@@ -113,11 +164,17 @@ def get_messages(conversation_id: str, db: Session = Depends(get_session)):
 
 
 @router.delete("/conversations/{conversation_id}")
-def delete_conversation(conversation_id: str, db: Session = Depends(get_session)):
-    """Delete a conversation and all associated messages."""
+def delete_conversation(
+    conversation_id: str,
+    token_email: str = Depends(get_user_email_from_token),
+    db: Session = Depends(get_session),
+):
+    """Delete a conversation and all associated messages (owner only)."""
     conv = db.get(Conversation, conversation_id)
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found.")
+    if conv.customer_email and conv.customer_email != token_email:
+        raise HTTPException(status_code=403, detail="Not your conversation.")
 
     # Delete messages
     msgs = db.exec(select(Message).where(Message.conversation_id == conversation_id)).all()
@@ -129,11 +186,18 @@ def delete_conversation(conversation_id: str, db: Session = Depends(get_session)
 
 
 @router.patch("/conversations/{conversation_id}")
-def update_conversation(conversation_id: str, summary: str, db: Session = Depends(get_session)):
-    """Rename/update conversation title summary."""
+def update_conversation(
+    conversation_id: str,
+    summary: str,
+    token_email: str = Depends(get_user_email_from_token),
+    db: Session = Depends(get_session),
+):
+    """Rename/update conversation title summary (owner only)."""
     conv = db.get(Conversation, conversation_id)
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found.")
+    if conv.customer_email and conv.customer_email != token_email:
+        raise HTTPException(status_code=403, detail="Not your conversation.")
 
     conv.summary = summary
     db.add(conv)

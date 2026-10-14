@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { marked } from 'marked'
+import DOMPurify from 'dompurify'
 import { fetchAgents, type Agent, streamMessage, fetchUserConversations, fetchMessages, deleteConversationApi } from './api'
 import { useChatStore, type ChatMessage } from './store'
 import { Plus, Menu, Send, Bot, Shield, CreditCard, TrendingUp, Settings, Globe, FileCheck, AlertCircle, Zap, Sparkles, User, AlertTriangle, Paperclip, FileText, X, MessageSquare, Trash2, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
@@ -11,8 +12,13 @@ import './index.css'
 import './App.css'
 import './LandingPage.css'
 
-// Configure marked for safe rendering
+// Configure marked for reuse
 marked.setOptions({ breaks: true, gfm: true })
+
+// Sanitize rendered markdown — agent output and conversation history must
+// never inject executable HTML (XSS).
+const renderMarkdown = (raw: string): string =>
+  DOMPurify.sanitize(marked.parse(raw) as string)
 
 const AGENT_CONFIG: Record<string, { color: string; icon: any; short: string }> = {
   'Supervisor Router':      { color: '#6366f1', icon: Bot, short: 'Supervisor' },
@@ -61,7 +67,7 @@ function MessageBubble({ msg }: { msg: ChatMessage }) {
   const cfg = getAgentConfig(msg.agent_name || 'Supervisor Router')
   const AgentIcon = cfg.icon
 
-  const htmlContent = isUser ? null : marked.parse(msg.content)
+  const htmlContent = isUser ? null : renderMarkdown(msg.content)
 
   return (
     <div className={`message-row ${isUser ? 'user-row' : 'assistant-row'}`}>

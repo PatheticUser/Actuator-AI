@@ -25,6 +25,12 @@ export interface ChatResponse {
   approval_items: string[];
 }
 
+// Auth helper: attach the JWT to every API request when logged in
+const authHeaders = (): Record<string, string> => {
+  const user = useChatStore.getState().user;
+  return user?.token ? { Authorization: `Bearer ${user.token}` } : {};
+};
+
 export const fetchAgents = async (): Promise<Agent[]> => {
   const res = await fetch(`${API_BASE}/agents/`);
   return res.json();
@@ -45,8 +51,12 @@ export const streamMessage = (
   // Add initial assistant streaming message using current agent
   store.addMessage({ role: 'assistant', content: '', agent_name: store.activeAgent === 'System' ? 'Supervisor Router' : store.activeAgent, isStreaming: true });
   
+  // JWT travels via query param (and also in the first frame) so the backend
+  // can authenticate the socket before any data is exchanged.
+  const token = store.user?.token;
   const wsUrl = new URL(API_BASE + '/chat/ws', window.location.origin).toString().replace(/^http/, 'ws');
-  const ws = new WebSocket(wsUrl);
+  const fullWsUrl = token ? `${wsUrl}?token=${encodeURIComponent(token)}` : wsUrl;
+  const ws = new WebSocket(fullWsUrl);
 
   let tempBuffer = '';
   let currentAgent = store.activeAgent === 'System' ? 'Supervisor Router' : store.activeAgent;
@@ -57,6 +67,7 @@ export const streamMessage = (
       customer_email: email,
       conversation_id: conversationId,
       images: images || [],
+      token,
     }));
   };
 
@@ -129,18 +140,26 @@ export const streamMessage = (
 };
 
 export const fetchMessages = async (conversationId: string): Promise<Message[]> => {
-  const res = await fetch(`${API_BASE}/chat/conversations/${conversationId}/messages`);
+  const res = await fetch(`${API_BASE}/chat/conversations/${conversationId}/messages`, {
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error(`Failed to load messages (${res.status})`);
   return res.json();
 };
 
 export const fetchUserConversations = async (email: string) => {
-  const res = await fetch(`${API_BASE}/chat/conversations?email=${encodeURIComponent(email)}`);
+  const res = await fetch(`${API_BASE}/chat/conversations?email=${encodeURIComponent(email)}`, {
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error(`Failed to load conversations (${res.status})`);
   return res.json();
 };
 
 export const deleteConversationApi = async (conversationId: string) => {
   const res = await fetch(`${API_BASE}/chat/conversations/${conversationId}`, {
     method: 'DELETE',
+    headers: authHeaders(),
   });
+  if (!res.ok) throw new Error(`Failed to delete conversation (${res.status})`);
   return res.json();
 };

@@ -18,13 +18,20 @@ set_tracing_disabled(True)
 _client_cache = {}
 
 
+# Transient provider failures (503 high demand, 429 rate limit) retry with
+# exponential backoff. OpenAI SDK default is only 2 attempts.
+_MAX_PROVIDER_RETRIES = 5
+
+
 def _get_client(base_url: str | None, api_key: str) -> AsyncOpenAI:
     cache_key = f"{base_url}:{api_key}"
     if cache_key not in _client_cache:
         if base_url:
-            _client_cache[cache_key] = AsyncOpenAI(base_url=base_url, api_key=api_key)
+            _client_cache[cache_key] = AsyncOpenAI(
+                base_url=base_url, api_key=api_key, max_retries=_MAX_PROVIDER_RETRIES
+            )
         else:
-            _client_cache[cache_key] = AsyncOpenAI(api_key=api_key)
+            _client_cache[cache_key] = AsyncOpenAI(api_key=api_key, max_retries=_MAX_PROVIDER_RETRIES)
     return _client_cache[cache_key]
 
 
@@ -42,7 +49,7 @@ def get_model(model_name: str | None = None) -> OpenAIChatCompletionsModel:
 
     if gemini_key:
         base_url = (os.getenv("GEMINI_BASE_URL") or "https://generativelanguage.googleapis.com/v1beta/openai/").strip()
-        target_model = (model_name or os.getenv("GEMINI_MODEL") or "gemini-3.6-flash").strip()
+        target_model = (model_name or os.getenv("GEMINI_MODEL") or "gemini-3.8-flash").strip()
         client = _get_client(base_url=base_url, api_key=gemini_key)
         return OpenAIChatCompletionsModel(model=target_model, openai_client=client)
 
