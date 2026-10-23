@@ -53,8 +53,8 @@ Comprehensive audit of vulnerabilities, performance bottlenecks, architecture li
 ## 3. Reliability & Operational Gaps
 
 1. **Health Check Shallow Ping**
-   - **Current:** `/health` returns static JSON (`{"status": "ok", ...}`) without testing PostgreSQL connectivity or OmniRouter/LLM reachability.
-   - **Fix:** Add deep health check verifying DB connection query (`SELECT 1`) and OmniRouter HTTP ping.
+   - **Current:** `/health` verifies PostgreSQL connectivity but does not test the configured LLM endpoint.
+   - **Fix:** Add an optional deep health check for the configured OpenAI-compatible endpoint.
 
 2. **Unbounded Conversation History Context**
    - **Current:** Entire conversation history is loaded and fed to the LLM without context window truncation or summarization. Long conversations will eventually hit context token limits or trigger high latency and cost.
@@ -84,9 +84,9 @@ Comprehensive audit of vulnerabilities, performance bottlenecks, architecture li
 
 ## 5. Deployment & Infrastructure Gaps
 
-1. **OmniRouter Dependency In Production**
-   - **Current:** `docker-compose.yml` relies on external host (`host.docker.internal:20128`) for OmniRouter. In standalone cloud production, OmniRouter is missing unless deployed as a companion container or remote URL is specified.
-   - **Fix:** Add `omniroute` service definition in `docker-compose.prod.yml` or document cloud AI gateway setup (OpenAI/Groq/LiteLLM fallback).
+1. **LLM Provider Readiness In Production**
+   - **Current:** LLM connectivity is checked lazily on the first chat request.
+   - **Fix:** Add an optional readiness check for the configured OpenAI-compatible endpoint.
 
 2. **Database Migration Pipeline**
    - **Current:** Database initialized via raw SQL files and `metadata.create_all()`. No schema migration tool (Alembic) configured for safe future updates without data loss.
@@ -95,4 +95,3 @@ Comprehensive audit of vulnerabilities, performance bottlenecks, architecture li
 3. **Missing Reverse Proxy & SSL Configuration**
    - **Current:** App exposes raw port 8000. No Nginx/Caddy container configured for SSL termination, HTTP/2, and static asset caching.
    - **Fix:** Add Nginx/Caddy service in `docker-compose.yml` with automated Let's Encrypt certificates.
-

@@ -1,16 +1,27 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { lazy, Suspense, useState, useEffect, useRef, useCallback, type ComponentType } from 'react'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import { fetchAgents, type Agent, streamMessage, fetchUserConversations, fetchMessages, deleteConversationApi } from './api'
 import { useChatStore, type ChatMessage } from './store'
 import { Plus, Menu, Send, Bot, Shield, CreditCard, TrendingUp, Settings, Globe, FileCheck, AlertCircle, Zap, Sparkles, User, AlertTriangle, Paperclip, FileText, X, MessageSquare, Trash2, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
-import LandingPage from './LandingPage'
-import EnhancedAuth from './EnhancedAuth'
-import Docs from './Docs'
 import { Routes, Route, Navigate, useNavigate } from 'react-router-dom'
 import './index.css'
 import './App.css'
 import './LandingPage.css'
+
+const LandingPage = lazy(() => import('./LandingPage'))
+const EnhancedAuth = lazy(() => import('./EnhancedAuth'))
+const Docs = lazy(() => import('./Docs'))
+const WorkspaceLayout = lazy(() => import('./Workspace').then(module => ({ default: module.WorkspaceLayout })))
+const OverviewPage = lazy(() => import('./Workspace').then(module => ({ default: module.OverviewPage })))
+const AgentsPage = lazy(() => import('./Workspace').then(module => ({ default: module.AgentsPage })))
+const ConversationsPage = lazy(() => import('./Workspace').then(module => ({ default: module.ConversationsPage })))
+const AnalyticsPage = lazy(() => import('./Workspace').then(module => ({ default: module.AnalyticsPage })))
+const SettingsPage = lazy(() => import('./Workspace').then(module => ({ default: module.SettingsPage })))
+
+function RouteLoading() {
+  return <div className="route-loading" role="status" aria-live="polite"><div className="route-spinner" /><span>Loading workspace…</span></div>
+}
 
 // Configure marked for reuse
 marked.setOptions({ breaks: true, gfm: true })
@@ -20,7 +31,7 @@ marked.setOptions({ breaks: true, gfm: true })
 const renderMarkdown = (raw: string): string =>
   DOMPurify.sanitize(marked.parse(raw) as string)
 
-const AGENT_CONFIG: Record<string, { color: string; icon: any; short: string }> = {
+const AGENT_CONFIG: Record<string, { color: string; icon: ComponentType<{ size?: number }>; short: string }> = {
   'Supervisor Router':      { color: '#6366f1', icon: Bot, short: 'Supervisor' },
   'Technical Specialist':   { color: '#06b6d4', icon: Settings, short: 'Technical' },
   'Account Security Agent': { color: '#f59e0b', icon: Shield, short: 'Security' },
@@ -122,11 +133,22 @@ export default function App() {
   const navigate = useNavigate()
 
   return (
-    <Routes>
-      <Route path="/" element={user ? <ChatApp /> : <LandingPage onGetStarted={() => navigate('/login')} />} />
-      <Route path="/login" element={user ? <Navigate to="/" /> : <EnhancedAuth />} />
-      <Route path="/docs" element={<Docs />} />
-    </Routes>
+    <Suspense fallback={<RouteLoading />}>
+      <Routes>
+        <Route path="/" element={<LandingPage onGetStarted={() => navigate('/login')} />} />
+        <Route path="/login" element={user ? <Navigate to="/app" /> : <EnhancedAuth />} />
+        <Route path="/app" element={user ? <WorkspaceLayout /> : <Navigate to="/login" />}>
+          <Route index element={<OverviewPage />} />
+          <Route path="agents" element={<AgentsPage />} />
+          <Route path="conversations" element={<ConversationsPage />} />
+          <Route path="analytics" element={<AnalyticsPage />} />
+          <Route path="settings" element={<SettingsPage />} />
+        </Route>
+        <Route path="/app/chat" element={user ? <ChatApp /> : <Navigate to="/login" />} />
+        <Route path="/docs" element={<Docs />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </Suspense>
   )
 }
 
@@ -139,6 +161,7 @@ interface AttachedFile {
 
 function ChatApp() {
   const store = useChatStore()
+  const navigate = useNavigate()
   const messages = store.messages
   const conversationId = store.conversationId
   const conversationsHistory = store.conversationsHistory
@@ -158,13 +181,14 @@ function ChatApp() {
   }, [])
 
   // Load conversations list for logged-in user
+  const userEmail = store.user?.email
   useEffect(() => {
-    if (store.user?.email) {
-      fetchUserConversations(store.user.email)
-        .then(list => store.setConversationsHistory(list))
+    if (userEmail) {
+      fetchUserConversations(userEmail)
+        .then(list => useChatStore.getState().setConversationsHistory(list))
         .catch(() => {})
     }
-  }, [store.user?.email])
+  }, [userEmail])
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -174,6 +198,8 @@ function ChatApp() {
     const files = e.target.files
     if (!files) return
     Array.from(files).forEach(file => {
+      const maxFileSize = 5 * 1024 * 1024
+      if (file.size > maxFileSize) return
       const isImg = file.type.startsWith('image/')
       const reader = new FileReader()
       if (isImg) {
@@ -186,7 +212,8 @@ function ChatApp() {
       } else {
         reader.onload = (evt) => {
           if (evt.target?.result) {
-            setAttachedFiles(prev => [...prev, { name: file.name, type: 'file', textContent: evt.target!.result as string }])
+            const textContent = String(evt.target.result).slice(0, 200_000)
+            setAttachedFiles(prev => [...prev, { name: file.name, type: 'file', textContent }])
           }
         }
         reader.readAsText(file)
@@ -286,6 +313,9 @@ function ChatApp() {
                 <Plus size={14} />
               )}
             </button>
+            <button className="workspace-home-btn" onClick={() => navigate('/app')} title="Back to workspace">
+              <Sparkles size={14} />
+            </button>
             <button className="toggle-sidebar-btn" onClick={() => setSidebarOpen(prev => !prev)} title={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}>
               {sidebarOpen ? <PanelLeftClose size={16} /> : <PanelLeftOpen size={16} />}
             </button>
@@ -323,8 +353,8 @@ function ChatApp() {
 
             <div className="sidebar-section-label" style={{ marginTop: '16px' }}>Active Agents</div>
             <div className="agent-list">
-              {(agents.length > 0 ? agents : Object.entries(AGENT_CONFIG).slice(0, 8).map(([, _v], i) => ({
-                key: String(i), name: Object.keys(AGENT_CONFIG)[i], description: '', tool_count: 0
+              {(agents.length > 0 ? agents : Object.keys(AGENT_CONFIG).slice(0, 8).map((name, i) => ({
+                key: String(i), name, description: '', tool_count: 0
               }))).map((a) => {
                 const cfg = getAgentConfig(a.name)
                 return (

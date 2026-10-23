@@ -899,3 +899,46 @@
   .email-input { width: 140px; }
   .msg-row.user, .msg-row.ai { max-width: 95%; }
 }
+
+/* Chat workspace refresh */
+.app{background:#0b0f18;color:#eef2ff}
+.sidebar{background:#101722;border-right:1px solid #202b3c;box-shadow:none}
+.sidebar-top{padding:18px 14px 14px;border-bottom-color:#202b3c}
+.logo-icon{background:linear-gradient(135deg,#7c3aed,#0ea5e9);box-shadow:0 8px 20px #6d56df33}
+.logo-name{font-family:'Space Grotesk',sans-serif}
+.new-chat-btn{background:#5146b91c;border-color:#5c59be;color:#c5bfff}
+.new-chat-btn:hover{background:#5146b933;border-color:#8e84ff}
+.workspace-home-btn{width:30px;height:30px;display:flex;align-items:center;justify-content:center;background:#151f2e;border:1px solid #2a3850;border-radius:7px;color:#8f84f4;cursor:pointer}
+.workspace-home-btn:hover{border-color:#8176eb;color:#c5bfff}
+.toggle-sidebar-btn{border-color:#2a3850;color:#8290a8}
+.toggle-sidebar-btn:hover{background:#192333;border-color:#8176eb}
+.sidebar-section-label{color:#63728a}
+.conv-history-item{color:#8290a8}
+.conv-history-item:hover{background:#192333;color:#e5eaff}
+.conv-history-item.active{background:#25204d;border-color:#5b54ad;color:#c2baff}
+.agent-item:hover{background:#192333}
+.agent-item-name{color:#8290a8}
+.sidebar-footer{border-top-color:#202b3c}
+.main{background:#0b0f18}
+.topbar{background:#0e141f;border-bottom-color:#202b3c;box-shadow:none}
+.toggle-btn{background:#151f2e;border-color:#2a3850;color:#8290a8}
+.toggle-btn:hover{background:#192333;color:#eef2ff}
+.conv-title{color:#eef2ff;font-family:'Space Grotesk',sans-serif}
+.email-field{background:#151f2e;border-color:#2a3850;color:#8290a8}
+.chat-area{background:radial-gradient(circle at 50% 24%,#1a173b55,transparent 44%),#0b0f18}
+.welcome{padding-bottom:110px}
+.welcome-orb{width:500px;height:500px;background:radial-gradient(ellipse,#6155d51a 0%,transparent 68%)}
+.welcome-icon{background:linear-gradient(135deg,#7c3aed,#0ea5e9);box-shadow:0 0 36px #665be944}
+.welcome-title{background:linear-gradient(110deg,#edf1ff,#9088ed 75%);-webkit-background-clip:text;background-clip:text}
+.welcome-sub{color:#7f8da5}
+.quick-prompt{background:#111a28;border-color:#27354b;color:#8f9db3}
+.quick-prompt:hover{background:#211d4a;border-color:#7065d2;color:#c8c2ff}
+.input-area{background:#0e141f;border-top-color:#202b3c}
+.input-box{background:#111a28;border-color:#2a3850;box-shadow:0 12px 35px #00000030}
+.input-box:focus-within{border-color:#7167dd;background:#141e2e;box-shadow:0 0 0 3px #7167dd1c,0 12px 35px #00000030}
+.input-textarea{color:#eef2ff}
+.input-textarea::placeholder{color:#66758e}
+.attach-btn{color:#71809a}
+.send-btn{background:linear-gradient(135deg,#7666e7,#4c82d9)}
+.send-btn.disabled{background:#202c40;color:#65738b}
+.input-hint{color:#5f6e86}

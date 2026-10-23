@@ -51,12 +51,11 @@ export const streamMessage = (
   // Add initial assistant streaming message using current agent
   store.addMessage({ role: 'assistant', content: '', agent_name: store.activeAgent === 'System' ? 'Supervisor Router' : store.activeAgent, isStreaming: true });
   
-  // JWT travels via query param (and also in the first frame) so the backend
-  // can authenticate the socket before any data is exchanged.
   const token = store.user?.token;
   const wsUrl = new URL(API_BASE + '/chat/ws', window.location.origin).toString().replace(/^http/, 'ws');
-  const fullWsUrl = token ? `${wsUrl}?token=${encodeURIComponent(token)}` : wsUrl;
-  const ws = new WebSocket(fullWsUrl);
+  // Keep credentials out of the WebSocket URL so reverse-proxy access logs
+  // cannot capture a reusable token.
+  const ws = new WebSocket(wsUrl);
 
   let tempBuffer = '';
   let currentAgent = store.activeAgent === 'System' ? 'Supervisor Router' : store.activeAgent;

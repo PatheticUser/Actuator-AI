@@ -606,7 +606,7 @@ const nodes = [
       desc: 'Central routing agent. Receives every message first. Runs classify_request() (keyword scoring across 7 categories), then hands off to specialist via SDK native handoff mechanism. Max 30 turns.',
       endpoints: ['classify_request(message)', 'escalate_to_human(reason, email, summary)', 'register_customer()', 'update_customer_profile()', 'change_plan()'],
       files: ['actuator_agents/supervisor_router/agent.py'],
-      schema: ['handoffs: 7 specialist agents', 'guardrails: jailbreak + PII + SQL injection', 'model: get_model() → factory → Gemini/OmniRouter/OpenAI', 'temperature: 0.2, max_tokens: 800'],
+      schema: ['handoffs: 7 specialist agents', 'guardrails: jailbreak + PII + SQL injection', 'model: get_model() → OpenAI-compatible endpoint', 'temperature: 0.2, max_tokens: 800'],
       tags: ['keyword scoring', 'HITL interruptions', 'context: {customer_email}']
     }
   },
@@ -630,14 +630,14 @@ const nodes = [
       tags: ['MCPServerStdioParams', 'stdio transport', 'isolated lifecycle']
     }
   },
-  { id: 'llm', label: 'LLM Gateway', sublabel: 'Gemini / OmniRouter / OpenAI', x: 900, y: 60, w: 152, h: 72, color: '#f0883e', layer: 'external', icon: '✨',
+  { id: 'llm', label: 'LLM Provider', sublabel: 'OpenAI-compatible API', x: 900, y: 60, w: 152, h: 72, color: '#f0883e', layer: 'external', icon: '✨',
     detail: {
       role: 'External · LLM Inference',
-      desc: 'Multi-provider factory with priority: (1) GEMINI_API_KEY → Google AI Studio OpenAI-compat endpoint, (2) OMNIROUTER_API_KEY → self-hosted gateway to 290+ providers, (3) OPENAI_API_KEY → direct OpenAI.',
-      endpoints: ['Gemini: https://generativelanguage.googleapis.com/v1beta/openai/', 'OmniRouter: http://127.0.0.1:20128/v1 (default)', 'OpenAI: api.openai.com/v1'],
-      files: ['shared/models/factory.py', 'shared/models/ollama_provider.py'],
-      schema: ['OpenAIChatCompletionsModel (Agents SDK)', 'AsyncOpenAI client', 'Default model: gemini-3.8-flash', 'set_tracing_disabled(True)'],
-      tags: ['GEMINI_API_KEY', 'OMNIROUTER_API_KEY', 'OPENAI_API_KEY', 'AsyncOpenAI']
+      desc: 'OpenAI-compatible provider configured with OPENAI_API_KEY, OPENAI_BASE_URL, and OPENAI_MODEL.',
+      endpoints: ['Configured endpoint: OPENAI_BASE_URL'],
+      files: ['shared/models/factory.py'],
+      schema: ['OpenAIChatCompletionsModel (Agents SDK)', 'AsyncOpenAI client', 'Configured model: OPENAI_MODEL', 'set_tracing_disabled(True)'],
+      tags: ['OPENAI_API_KEY', 'OPENAI_BASE_URL', 'OPENAI_MODEL', 'AsyncOpenAI']
     }
   },
   { id: 'postgres', label: 'PostgreSQL 16', sublabel: '21 business tables', x: 680, y: 560, w: 152, h: 72, color: '#3fb950', layer: 'storage', icon: '🐘',
@@ -646,7 +646,7 @@ const nodes = [
       desc: 'PostgreSQL 16 with 21-table schema covering the full SaaS support domain. Two access paths: SQLModel ORM (conversations/messages) and psycopg2 RealDictCursor (business tables). pool_pre_ping + keepalives for managed Postgres providers.',
       endpoints: ['ORM: conversations, messages, customers, support_tickets', 'psycopg2: customers, invoices, payments, refunds, subscriptions, products, api_usage, feature_flags, security_events, audit_logs, escalations, notifications_log, knowledge_articles, ...'],
       files: ['backend/db/schema.sql', 'backend/db/session.py', 'backend/models/conversation.py', 'shared/tools/db_tools.py'],
-      schema: ['pool_size=5, max_overflow=10', 'pool_pre_ping=True, pool_recycle=240s', 'keepalives_idle=30, keepalives_interval=10', 'Seeded from seed.sql.bak on startup'],
+      schema: ['pool_size=5, max_overflow=10', 'pool_pre_ping=True, pool_recycle=240s', 'keepalives_idle=30, keepalives_interval=10', 'Seeded from seed_data.sql on startup'],
       tags: ['SQLModel', 'psycopg2', 'RealDictCursor', 'Docker volume: postgres_data']
     }
   },

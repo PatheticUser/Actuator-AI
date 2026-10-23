@@ -1,5 +1,5 @@
 {
-  "name": "temp-vite-app",
+  "name": "actuator-ai-frontend",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -10,7 +10,6 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@types/react-window": "^1.8.8",
     "dompurify": "^3.4.17",
     "framer-motion": "^12.38.0",
     "lucide-react": "^1.8.0",
@@ -18,7 +17,6 @@
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "react-router-dom": "^7.14.2",
-    "react-window": "^2.2.7",
     "zustand": "^5.0.12"
   },
   "devDependencies": {

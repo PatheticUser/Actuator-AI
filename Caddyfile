@@ -43,6 +43,10 @@
 	}
 
 	# ── WebSocket traffic (chat streaming) ──────────────────────────────
+	request_body {
+		max_size 12MB
+	}
+
 	# Match any request that asks to upgrade the connection…
 	@websockets {
 		header Connection *Upgrade*

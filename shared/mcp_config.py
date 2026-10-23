@@ -37,7 +37,6 @@ def create_mcp_postgres() -> MCPServerStdio:
         params=MCPServerStdioParams(
             command=command,
             args=args,
-            client_session_timeout_seconds=30.0,
-        )
+        ),
+        client_session_timeout_seconds=30.0,
     )
-

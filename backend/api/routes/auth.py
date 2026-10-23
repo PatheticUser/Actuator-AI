@@ -3,7 +3,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlmodel import Session, select
-from pydantic import BaseModel, EmailStr, field_validator
+from pydantic import BaseModel, field_validator
 import jwt
 import bcrypt
 from datetime import datetime, timedelta, timezone
@@ -173,4 +173,3 @@ def login(req: AuthRequest, db: Session = Depends(get_session)):
 
     token = create_access_token({"sub": user.email})
     return AuthResponse(access_token=token, token_type="bearer", email=user.email, name=user.name)
-

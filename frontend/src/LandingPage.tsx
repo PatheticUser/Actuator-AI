@@ -1,336 +1,107 @@
-import React, { useState, useEffect, useRef } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
-import { ChevronRight, Sparkles, Shield, Zap, Users, BarChart3, Globe, ArrowRight, Database, UserCheck, Cpu, Network, FileSearch } from 'lucide-react'
+import { motion } from 'framer-motion'
+import {
+  ArrowRight,
+  BarChart3,
+  Check,
+  ChevronRight,
+  Cpu,
+  Database,
+  FileCheck2,
+  LockKeyhole,
+  Network,
+  Play,
+  ShieldCheck,
+  Sparkles,
+  Users,
+  Zap,
+} from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import './LandingPage.css'
 
-const AGENT_FEATURES = [
-  {
-    icon: Shield,
-    title: "Account Security",
-    description: "Handle login issues, 2FA setup, account lockouts, and security events with precision",
-    color: "#f59e0b"
-  },
-  {
-    icon: Zap,
-    title: "Technical Support",
-    description: "Diagnose API errors, system status, and create support tickets with deep technical expertise",
-    color: "#06b6d4"
-  },
-  {
-    icon: Users,
-    title: "Customer Success",
-    description: "Monitor health scores, prevent churn, and create renewal offers to retain customers",
-    color: "#8b5cf6"
-  },
-  {
-    icon: BarChart3,
-    title: "Billing & Finance",
-    description: "Process invoices, refunds, plan changes, and credit applications with financial oversight",
-    color: "#22c55e"
-  },
-  {
-    icon: Globe,
-    title: "Linguistic Analysis",
-    description: "Detect language, translate text, analyze sentiment, and assess communication quality",
-    color: "#0ea5e9"
-  },
-  {
-    icon: Shield,
-    title: "Audit & Compliance",
-    description: "Check for hallucinations, policy compliance, and generate QA reports for quality assurance",
-    color: "#ef4444"
-  }
+const HIGHLIGHTS = [
+  { icon: Network, title: 'Route every request', text: 'A supervisor agent coordinates specialists so every issue reaches the right expert.' },
+  { icon: ShieldCheck, title: 'Keep control', text: 'Guardrails, audit trails, and human approval protect high-impact actions.' },
+  { icon: BarChart3, title: 'See the impact', text: 'Track resolution speed, agent health, and operational outcomes in one place.' },
 ]
 
-const TECH_STACK = [
-  { name: "OpenAI Agents SDK", description: "Multi-agent orchestration" },
-  { name: "FastAPI", description: "High-performance backend" },
-  { name: "PostgreSQL", description: "Enterprise database" },
-  { name: "MCP Integration", description: "Real-time database access" },
-  { name: "React 19 + Vite", description: "Modern frontend" },
-  { name: "Ollama", description: "Local inference engine" }
+const AGENTS = [
+  ['Technical', 'Resolve incidents and API issues', '#22d3ee'],
+  ['Security', 'Protect accounts and access', '#f59e0b'],
+  ['Billing', 'Handle invoices and plans', '#34d399'],
+  ['Success', 'Keep customers moving forward', '#a78bfa'],
 ]
-
-const FEATURE_ICONS = {
-  database: Database,
-  approval: UserCheck,
-  shield: Shield,
-  orchestrate: Network,
-  ai: Cpu,
-  audit: FileSearch
-}
 
 export default function LandingPage({ onGetStarted }: { onGetStarted: () => void }) {
-  const [currentFeature, setCurrentFeature] = useState(0)
-  const [, setIsVisible] = useState(false)
-  const containerRef = useRef<HTMLDivElement>(null)
   const navigate = useNavigate()
 
-  useEffect(() => {
-    setIsVisible(true)
-    const interval = setInterval(() => {
-      setCurrentFeature(prev => (prev + 1) % AGENT_FEATURES.length)
-    }, 3000)
-    return () => clearInterval(interval)
-  }, [])
-
   return (
-    <motion.div
-      ref={containerRef}
-      className="landing-container"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      transition={{ duration: 0.8 }}
-    >
-      {/* Animated background elements */}
-      <div className="background-effects">
+    <main className="landing-container">
+      <div className="background-effects" aria-hidden="true">
         <div className="orb orb-1" />
         <div className="orb orb-2" />
-        <div className="orb orb-3" />
         <div className="grid-pattern" />
       </div>
 
-      {/* Hero section */}
-      <section className="hero-section">
-        <motion.div
-          className="hero-content"
-          initial={{ y: 50, opacity: 0 }}
-          animate={{ y: 0, opacity: 1 }}
-          transition={{ duration: 0.8, delay: 0.2 }}
-        >
-          <div className="hero-badge">
-            <Sparkles size={14} />
-            <span>Production-Grade Multi-Agent Platform</span>
-          </div>
+      <nav className="landing-nav" aria-label="Primary navigation">
+        <button className="brand-lockup" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} aria-label="Actuator AI home">
+          <span className="brand-mark"><Zap size={17} /></span>
+          <span><strong>Actuator</strong><small>AI operations</small></span>
+        </button>
+        <div className="landing-nav-links">
+          <a href="#platform">Platform</a>
+          <a href="#security">Security</a>
+          <a href="#teams">Teams</a>
+          <button className="nav-signin" onClick={() => navigate('/login')}>Sign in</button>
+          <button className="nav-cta" onClick={onGetStarted}>Get started <ArrowRight size={15} /></button>
+        </div>
+      </nav>
 
-          <h1 className="hero-title">
-            Automate Complex Support <span className="gradient-text">With Precision</span>
-          </h1>
-
-          <p className="hero-description">
-            Empower your team with a coordinated virtual workforce. Actuator AI orchestrates specialized agents 
-            to resolve technical, security, and billing crises in seconds, not hours.
-          </p>
-
+      <section className="hero-section landing-hero">
+        <motion.div className="hero-content" initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.55 }}>
+          <div className="hero-badge"><span className="live-dot" /> AI operations, finally coordinated</div>
+          <h1 className="hero-title">Your best teams,<br /><span className="gradient-text">working in sync.</span></h1>
+          <p className="hero-description">Actuator AI turns complex customer operations into a coordinated workflow of specialist agents — fast, secure, and observable from day one.</p>
           <div className="hero-actions">
-            <motion.button
-              className="primary-button"
-              onClick={onGetStarted}
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
-            >
-              Get Started
-              <ArrowRight size={16} />
-            </motion.button>
-
-            <button className="secondary-button" onClick={() => navigate('/docs')}>
-              View Documentation
-              <ChevronRight size={16} />
-            </button>
+            <button className="primary-button" onClick={onGetStarted}>Start building <ArrowRight size={17} /></button>
+            <button className="secondary-button" onClick={() => navigate('/docs')}><Play size={15} /> See how it works</button>
           </div>
+          <div className="hero-proof"><span><Check size={14} /> No credit card required</span><span><Check size={14} /> Secure by default</span><span><Check size={14} /> Deploy in minutes</span></div>
         </motion.div>
 
-        {/* Animated feature showcase */}
-        <motion.div
-          className="feature-showcase"
-          initial={{ x: 50, opacity: 0 }}
-          animate={{ x: 0, opacity: 1 }}
-          transition={{ duration: 0.8, delay: 0.4 }}
-        >
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={currentFeature}
-              className="feature-card"
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -20 }}
-              transition={{ duration: 0.5 }}
-              style={{ borderColor: AGENT_FEATURES[currentFeature].color + '30' }}
-            >
-              <div
-                className="feature-icon"
-                style={{
-                  background: AGENT_FEATURES[currentFeature].color + '15',
-                  borderColor: AGENT_FEATURES[currentFeature].color + '30'
-                }}
-              >
-                {AGENT_FEATURES[currentFeature].icon && React.createElement(AGENT_FEATURES[currentFeature].icon, {
-                  size: 24,
-                  color: AGENT_FEATURES[currentFeature].color
-                })}
+        <motion.div className="product-preview" initial={{ opacity: 0, x: 24 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.65, delay: 0.15 }}>
+          <div className="preview-glow" />
+          <div className="preview-window">
+            <div className="preview-bar"><div className="window-dots"><i /><i /><i /></div><span>Operations workspace</span><span className="preview-status"><span className="live-dot" /> Live</span></div>
+            <div className="preview-body">
+              <div className="preview-sidebar">
+                <div className="mini-brand"><span className="brand-mark"><Zap size={12} /></span><strong>Actuator</strong></div>
+                <div className="mini-nav active"><Sparkles size={13} /> Overview</div><div className="mini-nav"><Users size={13} /> Customers</div><div className="mini-nav"><BarChart3 size={13} /> Analytics</div>
+                <div className="mini-label">ACTIVE AGENTS</div>
+                {AGENTS.slice(0, 3).map(([name, , color]) => <div className="mini-agent" key={name}><span style={{ background: color }} />{name}<small>online</small></div>)}
               </div>
-              <h3 style={{ color: AGENT_FEATURES[currentFeature].color }}>
-                {AGENT_FEATURES[currentFeature].title}
-              </h3>
-              <p>{AGENT_FEATURES[currentFeature].description}</p>
-            </motion.div>
-          </AnimatePresence>
+              <div className="preview-main">
+                <div className="preview-heading"><div><small>MONDAY, OCTOBER 24</small><h3>Good morning, Rameez</h3></div><div className="avatar">R</div></div>
+                <div className="metric-row"><div className="metric-card"><small>Requests resolved</small><strong>2,840</strong><em>↗ 18.4%</em></div><div className="metric-card"><small>Avg. response time</small><strong>1.8<span>s</span></strong><em>↘ 32%</em></div></div>
+                <div className="activity-card"><div className="card-heading"><strong>Live agent activity</strong><span>View all <ChevronRight size={13} /></span></div>{AGENTS.map(([name, text, color], index) => <div className="activity-item" key={name}><span className="activity-icon" style={{ color, background: `${color}18` }}>{index === 0 ? <Cpu size={14} /> : index === 1 ? <LockKeyhole size={14} /> : index === 2 ? <Database size={14} /> : <Users size={14} />}</span><div><strong>{name} agent</strong><small>{text}</small></div><span className="activity-time">{index + 1}m ago</span></div>)}</div>
+              </div>
+            </div>
+          </div>
         </motion.div>
       </section>
 
-      {/* Features grid */}
-      <section className="features-section">
-        <div className="section-header">
-          <h2>Enterprise-Grade Architecture</h2>
-          <p>Built for scale, security, and seamless integration</p>
-        </div>
+      <section className="logo-strip" aria-label="Platform capabilities"><span>BUILT FOR TEAMS THAT RUN ON <strong>TRUST</strong></span><span><LockKeyhole size={14} /> Enterprise guardrails</span><span><Database size={14} /> Private data ready</span><span><FileCheck2 size={14} /> Full audit trail</span></section>
 
-        <div className="features-grid">
-          {[
-            {
-              title: "Real-time Database Access",
-              description: "All agents have direct PostgreSQL read access via MCP integration",
-              icon: "database"
-            },
-            {
-              title: "Human-in-the-Loop",
-              description: "Critical operations require manager approval before execution",
-              icon: "approval"
-            },
-            {
-              title: "Guardrail Pipeline",
-              description: "Three-layer security: jailbreak detection, PII scanning, SQL injection prevention",
-              icon: "shield"
-            },
-            {
-              title: "Multi-Agent Orchestration",
-              description: "Supervisor routes to specialized agents based on request classification",
-              icon: "orchestrate"
-            },
-            {
-              title: "Local Inference",
-              description: "Powered by Ollama with OpenAI-compatible API support",
-              icon: "ai"
-            },
-            {
-              title: "Audit & Compliance",
-              description: "Complete conversation auditing and policy compliance checking",
-              icon: "audit"
-            }
-          ].map((feature, index) => {
-            const IconComponent = FEATURE_ICONS[feature.icon as keyof typeof FEATURE_ICONS]
-            return (
-              <motion.div
-                key={index}
-                className="feature-item"
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.5, delay: index * 0.1 }}
-              >
-                <div className="feature-item-icon">
-                  {IconComponent && React.createElement(IconComponent, { size: 24 })}
-                </div>
-                <h3>{feature.title}</h3>
-                <p>{feature.description}</p>
-              </motion.div>
-            )
-          })}
-        </div>
+      <section className="highlights-section" id="platform">
+        <div className="section-kicker">ONE PLATFORM. EVERY SPECIALIST.</div><h2>Make complex work<br /><span className="muted-heading">feel effortless.</span></h2>
+        <div className="highlights-grid">{HIGHLIGHTS.map(({ icon: Icon, title, text }, index) => <motion.article className="highlight-card" key={title} initial={{ opacity: 0, y: 16 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: '-60px' }} transition={{ delay: index * 0.08 }}><span className="highlight-icon"><Icon size={19} /></span><h3>{title}</h3><p>{text}</p><span className="card-arrow"><ArrowRight size={15} /></span></motion.article>)}</div>
       </section>
 
-      {/* Tech stack */}
-      <section className="tech-section">
-        <div className="section-header">
-          <h2>Modern Technology Stack</h2>
-          <p>Built with industry-leading tools and frameworks</p>
-        </div>
+      <section className="teams-section" id="teams"><div><div className="section-kicker">A VIRTUAL WORKFORCE</div><h2>Every role has<br /><span className="gradient-text">a specialist.</span></h2><p>Stop forcing one general-purpose bot to do everything. Give every workflow the context, tools, and guardrails it needs to excel.</p><button className="text-link" onClick={() => navigate('/docs')}>Explore the platform <ArrowRight size={15} /></button></div><div className="agent-stack">{AGENTS.map(([name, text, color], index) => <div className="agent-row" key={name} style={{ transform: `translateX(${index * 18}px)` }}><span className="agent-row-icon" style={{ color, background: `${color}18` }}>{index === 0 ? <Cpu size={17} /> : index === 1 ? <ShieldCheck size={17} /> : index === 2 ? <Database size={17} /> : <Users size={17} />}</span><span><strong>{name} agent</strong><small>{text}</small></span><span className="agent-online"><i /> online</span></div>)}</div></section>
 
-        <div className="tech-grid">
-          {TECH_STACK.map((tech, index) => (
-            <motion.div
-              key={index}
-              className="tech-card"
-              initial={{ opacity: 0, scale: 0.9 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ duration: 0.5, delay: index * 0.1 }}
-            >
-              <h3>{tech.name}</h3>
-              <p>{tech.description}</p>
-            </motion.div>
-          ))}
-        </div>
-      </section>
+      <section className="security-section" id="security"><div className="security-card"><div className="security-copy"><span className="section-kicker">DESIGNED FOR TRUST</span><h2>Move fast.<br /><span className="muted-heading">Stay in control.</span></h2><p>Every action is observable, every sensitive step is guarded, and every high-impact decision can stay with a human.</p><button className="secondary-button" onClick={() => navigate('/docs')}>Read our security model <ArrowRight size={15} /></button></div><div className="security-list"><div><ShieldCheck size={18} /><span><strong>Guardrail pipeline</strong><small>PII, jailbreak, and injection detection</small></span><Check size={16} /></div><div><LockKeyhole size={18} /><span><strong>Human approvals</strong><small>Keep critical actions behind a review step</small></span><Check size={16} /></div><div><FileCheck2 size={18} /><span><strong>Audit everything</strong><small>Trace every request from prompt to outcome</small></span><Check size={16} /></div></div></div></section>
 
-      {/* Documentation section */}
-      <section id="docs" className="documentation-section">
-        <div className="section-header">
-          <h2>Complete Customer Support Solution</h2>
-          <p>Handle every aspect of customer support with our multi-agent platform</p>
-        </div>
-
-        <div className="documentation-grid">
-          <div className="doc-card">
-            <h3>🤖 8 Specialized Agents</h3>
-            <p>From technical support to billing, security to success - each agent handles specific domains with expert knowledge</p>
-            <ul>
-              <li>Technical Specialist: API errors, system diagnostics</li>
-              <li>Account Security: Login issues, 2FA setup</li>
-              <li>Billing Finance: Invoices, refunds, plan changes</li>
-              <li>Success Retention: Health scores, churn prevention</li>
-            </ul>
-          </div>
-
-          <div className="doc-card">
-            <h3>🛡️ Enterprise Security</h3>
-            <p>Built-in guardrails and compliance measures for secure operations</p>
-            <ul>
-              <li>Jailbreak detection and prevention</li>
-              <li>PII scanning (credit cards, SSN)</li>
-              <li>SQL injection protection</li>
-              <li>Complete audit logging</li>
-            </ul>
-          </div>
-
-          <div className="doc-card">
-            <h3>⚡ Real-time Performance</h3>
-            <p>Lightning-fast responses with WebSocket streaming and local inference</p>
-            <ul>
-              <li>WebSocket-based streaming responses</li>
-              <li>Ollama local inference engine</li>
-              <li>Fresh MCP server per request</li>
-              <li>Optimized database queries</li>
-            </ul>
-          </div>
-
-          <div className="doc-card">
-            <h3>🔧 Integration Ready</h3>
-            <p>Seamlessly connect with your existing systems and workflows</p>
-            <ul>
-              <li>CRM system integration</li>
-              <li>Jira ticket creation</li>
-              <li>Support ticket management</li>
-              <li>Custom tool development</li>
-            </ul>
-          </div>
-        </div>
-      </section>
-
-      {/* CTA section */}
-      <section className="cta-section">
-        <motion.div
-          className="cta-content"
-          initial={{ opacity: 0, y: 30 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.8 }}
-        >
-          <h2>Ready to Transform Your Customer Support?</h2>
-          <p>
-            Join enterprises leveraging AI-powered multi-agent systems for
-            scalable, secure, and intelligent customer interactions.
-          </p>
-
-          <motion.button
-            className="primary-button large"
-            onClick={onGetStarted}
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
-          >
-            Start Using Actuator AI
-            <ArrowRight size={18} />
-          </motion.button>
-        </motion.div>
-      </section>
-    </motion.div>
+      <section className="cta-section"><div className="cta-content"><span className="hero-badge"><Sparkles size={14} /> Start with your first workflow</span><h2>Turn busywork into<br /><span className="gradient-text">momentum.</span></h2><p>Give your team an AI workforce they can trust — and customers a faster way forward.</p><button className="primary-button large" onClick={onGetStarted}>Create your workspace <ArrowRight size={17} /></button></div></section>
+      <footer className="landing-footer"><span className="brand-lockup"><span className="brand-mark"><Zap size={14} /></span><strong>Actuator AI</strong></span><span>© 2026 Actuator AI. Built for better operations.</span><button onClick={() => navigate('/docs')}>Documentation <ArrowRight size={13} /></button></footer>
+    </main>
   )
 }

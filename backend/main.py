@@ -38,7 +38,7 @@ def init_db_tables():
             print("🌱 Seeding database tables with 21 business data tables...")
             db_dir = os.path.join(os.path.dirname(__file__), "db")
             schema_path = os.path.join(db_dir, "schema.sql")
-            seed_path = os.path.join(db_dir, "seed.sql.bak")
+            seed_path = os.path.join(db_dir, "seed_data.sql")
             
             with _conn() as conn:
                 with conn.cursor() as cur:
@@ -96,8 +96,8 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origin_list,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 # Register API routes
@@ -114,7 +114,8 @@ def health_check():
         with engine.connect() as conn:
             conn.execute(text("SELECT 1"))
     except Exception as e:
-        db_status = f"unhealthy: {e}"
+        print(f"Health check database error: {e}")
+        db_status = "unhealthy"
 
     is_healthy = db_status == "ok"
     return {
@@ -155,4 +156,3 @@ else:
     def root_ui():
         """Serve the basic Chat UI."""
         return FileResponse(os.path.join(STATIC_FALLBACK, "index.html"))
-

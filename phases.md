@@ -42,7 +42,7 @@ Actionable plan to harden, containerize, and deploy Actuator AI to production.
 - [ ] **Deep Health Check**
   - Expand `/health` to verify:
     - PostgreSQL connection status (`SELECT 1`).
-    - OmniRouter / LLM gateway endpoint reachability.
+    - OpenAI-compatible LLM endpoint reachability.
     - Disc space and memory thresholds.
 - [ ] **Metrics & Monitoring**
   - Expose Prometheus metrics endpoint (`/metrics`) for response latency, token usage, agent routing distribution, and error rates.
@@ -89,4 +89,3 @@ Actionable plan to harden, containerize, and deploy Actuator AI to production.
   - Run concurrent WebSocket load tests (k6 or Locust) to confirm connection stability under target concurrency.
 - [ ] **Audit Trail Review**
   - Verify audit log integrity, hallucination risk metrics, and customer feedback data.
-

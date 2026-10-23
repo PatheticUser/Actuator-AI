@@ -14,6 +14,10 @@ from backend.services.agent_service import run_chat_stream
 
 router = APIRouter(prefix="/chat", tags=["Chat"])
 
+_MAX_MESSAGE_LENGTH = 12_000
+_MAX_IMAGES = 4
+_MAX_IMAGE_PAYLOAD_LENGTH = 8_000_000
+
 
 @router.websocket("/ws")
 async def chat_websocket(websocket: WebSocket, db: Session = Depends(get_session)):
@@ -68,6 +72,23 @@ async def chat_websocket(websocket: WebSocket, db: Session = Depends(get_session
         message = req_data.get("message", "")
         conversation_id = req_data.get("conversation_id")
         images = req_data.get("images", [])
+        if not isinstance(message, str) or len(message) > _MAX_MESSAGE_LENGTH:
+            await websocket.send_text(json.dumps({
+                "type": "error",
+                "content": "Message is too large. Keep messages under 12,000 characters.",
+            }))
+            await websocket.close(code=1009)
+            return
+        if not isinstance(images, list) or len(images) > _MAX_IMAGES or any(
+            not isinstance(image, str) or len(image) > _MAX_IMAGE_PAYLOAD_LENGTH
+            for image in images
+        ):
+            await websocket.send_text(json.dumps({
+                "type": "error",
+                "content": "Attachments exceed the supported limit.",
+            }))
+            await websocket.close(code=1009)
+            return
 
         if conversation_id:
             conversation = db.get(Conversation, conversation_id)

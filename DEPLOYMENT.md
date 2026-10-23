@@ -199,7 +199,7 @@ nano .env.production        # see table below
 | `SECRET_KEY` | ✅ | `openssl rand -hex 32` — app **refuses to boot** in production with the default |
 | `CORS_ORIGINS` | ✅ | `https://your.domain,https://www.your.domain` |
 | `POSTGRES_PASSWORD` | ✅ | `openssl rand -hex 24` — must match for app and db (both read the same file) |
-| `GEMINI_API_KEY` / `OPENAI_API_KEY` | ✅ one of them | LLM provider; agents fail without one |
+| `OPENAI_API_KEY` | ✅ | LLM provider token; use with `OPENAI_BASE_URL` and `OPENAI_MODEL` for Cloudflare or another OpenAI-compatible endpoint |
 | `DOCKER_PLATFORM` | – | `linux/arm64` (default, native on Ampere A1) |
 | `WEB_CONCURRENCY` | – | uvicorn workers, `2` is a good default for 4 OCPU |
 | `DATABASE_URL` | – | leave commented to use the bundled Postgres |

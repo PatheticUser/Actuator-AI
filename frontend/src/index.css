@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap');
 
 *, *::before, *::after {
   box-sizing: border-box;
@@ -37,7 +37,7 @@ html, body, #root {
 }
 
 body {
-  font-family: 'Outfit', 'Inter', system-ui, sans-serif;
+  font-family: 'DM Sans', system-ui, sans-serif;
   background: var(--bg-0);
   background-image: radial-gradient(circle at top right, rgba(99,102,241,0.1), transparent 40%),
                     radial-gradient(circle at bottom left, rgba(139,92,246,0.1), transparent 40%);
@@ -46,6 +46,50 @@ body {
   font-size: 14px;
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3, h4, .logo-name, .hero-title {
+  font-family: 'Space Grotesk', 'DM Sans', system-ui, sans-serif;
+}
+
+button, input, textarea {
+  font: inherit;
+}
+
+button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visible {
+  outline: 3px solid rgba(34, 211, 238, 0.65);
+  outline-offset: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  .route-loading {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    background: #0b0f18;
+    color: #8f9db3;
+    font-size: 12px;
+  }
+
+  .route-spinner {
+    width: 16px;
+    height: 16px;
+    border: 2px solid #2b3651;
+    border-top-color: #8b7cf6;
+    border-radius: 50%;
+    animation: route-spin .7s linear infinite;
+  }
+
+  @keyframes route-spin { to { transform: rotate(360deg); } }
 }
 
 /* Scrollbar */

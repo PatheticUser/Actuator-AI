@@ -14,7 +14,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 from agents import Agent, Runner, ModelSettings, function_tool
 
-from shared.models.ollama_provider import get_model
+from shared.models.factory import get_model
 from shared.mcp_config import create_mcp_postgres
 from shared.guardrails.safety import detect_jailbreak, detect_sql_injection
 from shared.tools.db_tools import create_support_ticket

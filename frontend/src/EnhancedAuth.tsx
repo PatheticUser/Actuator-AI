@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { motion } from 'framer-motion'
-import { Zap, Shield, Users, BarChart3, ArrowRight, ChevronRight } from 'lucide-react'
+import { Zap, Shield, Users, BarChart3, ArrowRight, ChevronRight, LoaderCircle, LockKeyhole } from 'lucide-react'
 import { useChatStore } from './store'
 import { API_BASE } from './api'
 import './LandingPage.css'
@@ -40,14 +40,21 @@ export default function EnhancedAuth() {
   const [name, setName] = useState('')
   const [error, setError] = useState('')
   const [showFeatures, setShowFeatures] = useState(false)
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
-  const extractErrorMessage = (data: any) => {
+  const extractErrorMessage = (data: unknown) => {
+    const detail = (data as { detail?: unknown })?.detail
     // FastAPI 422 responses carry `detail` as an array of validation objects;
     // other errors carry it as a plain string.
-    if (typeof data?.detail === 'string') return data.detail
-    if (Array.isArray(data?.detail)) {
-      return data.detail
-        .map((d: any) => d?.msg?.replace(/^Value error, /, '') || 'Validation error')
+    if (typeof detail === 'string') return detail
+    if (Array.isArray(detail)) {
+      return detail
+        .map((item) => {
+          const message = (item as { msg?: unknown })?.msg
+          return typeof message === 'string'
+            ? message.replace(/^Value error, /, '')
+            : 'Validation error'
+        })
         .join(' • ')
     }
     return 'Auth failed'
@@ -55,11 +62,13 @@ export default function EnhancedAuth() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (isSubmitting) return
     setError('')
     if (password.length < 8) {
       setError('Password must be at least 8 characters long.')
       return
     }
+    setIsSubmitting(true)
     try {
       const endpoint = isLogin ? '/auth/login' : '/auth/signup'
       const body = isLogin ? { email, password } : { email, password, name }
@@ -71,8 +80,10 @@ export default function EnhancedAuth() {
       const data = await res.json()
       if (!res.ok) throw new Error(extractErrorMessage(data))
       store.setUser({ email: data.email, name: data.name, token: data.access_token })
-    } catch (err: any) {
-      setError(err.message || 'Auth failed')
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Auth failed')
+    } finally {
+      setIsSubmitting(false)
     }
   }
 
@@ -104,6 +115,7 @@ export default function EnhancedAuth() {
             <p className="auth-subtitle">
               {isLogin ? 'Welcome back' : 'Create your account'}
             </p>
+            <div className="auth-trust-note"><LockKeyhole size={13} /> Your workspace is protected by enterprise guardrails</div>
           </div>
 
           <form onSubmit={handleSubmit} className="auth-form">
@@ -128,7 +140,8 @@ export default function EnhancedAuth() {
               <div className="input-group">
                 <input
                   type="text"
-                  placeholder="Full Name"
+                  placeholder="Full name"
+                  aria-label="Full name"
                   value={name}
                   onChange={e => setName(e.target.value)}
                   required
@@ -140,7 +153,8 @@ export default function EnhancedAuth() {
             <div className="input-group">
               <input
                 type="email"
-                placeholder="Email Address"
+                placeholder="Work email"
+                aria-label="Work email"
                 value={email}
                 onChange={e => setEmail(e.target.value)}
                 required
@@ -151,7 +165,8 @@ export default function EnhancedAuth() {
             <div className="input-group">
               <input
                 type="password"
-                placeholder="Password (min 8 characters)"
+                placeholder="Password (8+ characters)"
+                aria-label="Password"
                 value={password}
                 onChange={e => setPassword(e.target.value)}
                 required
@@ -161,7 +176,7 @@ export default function EnhancedAuth() {
             </div>
 
             {error && (
-              <div className="auth-error">
+              <div className="auth-error" role="alert">
                 {error}
               </div>
             )}
@@ -172,8 +187,7 @@ export default function EnhancedAuth() {
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
             >
-              {isLogin ? 'Log In' : 'Create Account'}
-              <ArrowRight size={16} />
+              {isSubmitting ? <><LoaderCircle size={16} className="spin" /> {isLogin ? 'Signing you in…' : 'Creating workspace…'}</> : <>{isLogin ? 'Log in' : 'Create account'}<ArrowRight size={16} /></>}
             </motion.button>
           </form>
 
@@ -233,7 +247,7 @@ export default function EnhancedAuth() {
               <h4>Additional Capabilities:</h4>
               <ul>
                 <li>Real-time WebSocket communication</li>
-                <li>Ollama local inference engine</li>
+                <li>OpenAI-compatible model provider</li>
                 <li>Complete audit and compliance tracking</li>
                 <li>Multi-language support with linguistic analysis</li>
                 <li>CRM and ticketing system integration</li>

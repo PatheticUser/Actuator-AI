@@ -6,13 +6,13 @@
 
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB?style=flat&logo=python&logoColor=white)](https://python.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.135.3+-009688?style=flat&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
-[![OmniRouter](https://img.shields.io/badge/LLM-OmniRouter-6366F1?style=flat&logo=openai&logoColor=white)](https://github.com/diegosouzapw/OmniRoute)
+[![OpenAI-compatible LLM](https://img.shields.io/badge/LLM-OpenAI--compatible-6366F1?style=flat&logo=openai&logoColor=white)](https://platform.openai.com/docs/api-reference)
 [![OpenAI Agents SDK](https://img.shields.io/badge/OpenAI_Agents_SDK-0.13.6+-412991?style=flat&logo=openai&logoColor=white)](https://github.com/openai/openai-agents-python)
 [![React](https://img.shields.io/badge/React-19-61DAFB?style=flat&logo=react&logoColor=white)](https://react.dev)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16+-4169E1?style=flat&logo=postgresql&logoColor=white)](https://postgresql.org)
 [![License](https://img.shields.io/badge/License-MIT-yellow?style=flat)](LICENSE)
 
-**8 specialized AI agents · OmniRouter auto-routing to 290+ providers · Multimodal Vision & OCR · Persistent Conversation Sidebar · Real-time PostgreSQL MCP · Free Email Notifications · Safe CRUD Operations**
+**8 specialized AI agents · OpenAI-compatible model provider · Multimodal Vision & OCR · Persistent Conversation Sidebar · Real-time PostgreSQL MCP · Free Email Notifications · Safe CRUD Operations**
 
 </div>
 
@@ -210,7 +210,7 @@ The central orchestrator. Every customer message enters through this agent, whic
 | Property | Value |
 |---|---|
 | **Agent Name** | Supervisor Router |
-| **Model** | `auto` (OmniRouter) |
+| **Model** | `OPENAI_MODEL` from the configured OpenAI-compatible provider |
 | **Temperature** | 0.20 |
 | **Max Tokens** | 800 |
 | **Input Guardrails** | Jailbreak, PII, SQL Injection |
@@ -262,7 +262,7 @@ Key behaviors:
 | **DB Access Protocol** | [MCP PostgreSQL Server](https://github.com/modelcontextprotocol/servers) | npx | `MCPServerStdio` with 30s session timeout; per-request factory pattern |
 | **Authentication** | [bcrypt](https://github.com/pyca/bcrypt) + [PyJWT](https://github.com/jpadilla/pyjwt) | >=5.0.0 + >=2.12.1 | bcrypt password hashing; HS256 JWT with 7-day expiry |
 | **Configuration** | [Pydantic Settings](https://docs.pydantic.dev/latest/concepts/pydantic_settings/) | >=2.13.1 | `BaseSettings` with `SettingsConfigDict(env_file=".env")`; computed properties for `SQLALCHEMY_DATABASE_URI` |
-| **LLM Inference** | [OmniRouter](https://github.com/diegosouzapw/OmniRoute) | >=1.0 | Self-hosted AI gateway routing to 290+ providers with auto-failover. OpenAI-compatible endpoint. |
+| **LLM Inference** | OpenAI-compatible API | -- | Configured with `OPENAI_API_KEY`, `OPENAI_BASE_URL`, and `OPENAI_MODEL`; supports Cloudflare Workers AI and other compatible endpoints. |
 | **HTTP Client** | [httpx](https://www.python-httpx.org) | >=0.28.1 | Async HTTP for Tavily search, currency conversion, webhook delivery |
 | **Frontend** | [React](https://react.dev) 19 + [Vite](https://vite.dev) 8 | -- | TypeScript 6.0 strict mode; `@vitejs/plugin-react` with SWC |
 | **State Management** | [Zustand](https://github.com/pmndrs/zustand) | 5.0.12 | Single store with `create<ChatStore>()`; action-based updates |
@@ -539,13 +539,11 @@ result = await Runner.run(agent, state)
 
 ### Provider Layer
 
-All LLM calls route through **OmniRouter** — self-hosted AI gateway at `http://localhost:20128/v1`. OmniRouter handles provider selection, failover, and compression across 290+ providers. Model is set to `auto` so OmniRouter picks the best provider per request.
+All LLM calls use the single configured **OpenAI-compatible endpoint**. The provider URL and model are controlled by `OPENAI_BASE_URL` and `OPENAI_MODEL`; no Gemini, OmniRouter, Ollama, Groq, or LiteLLM compatibility layer is loaded by the application.
 
 | Module | Purpose |
 |---|---|
-| `shared.models.ollama_provider` | Default import for all agents (delegates to factory) |
-| `shared.models.factory` | Core factory — creates OpenAI-compatible client pointing at OmniRouter |
-| `shared.models.litellm_provider` | Direct LiteLLM access (only for use outside OmniRouter) |
+| `shared.models.factory` | Core factory — creates the OpenAI-compatible client |
 
 ---
 
@@ -636,7 +634,7 @@ Each of the 8 agents plus Guardrail and System have unique color + icon mappings
 - **PostgreSQL 14+** -- Create database `actuator_ai` and apply schema + seed
 - **Python 3.11+** -- Package management via `uv` (Astral)
 - **Node.js 18+** -- Frontend build tooling
-- **OmniRouter** -- Self-hosted AI gateway auto-routing to 290+ providers (`npm install -g omniroute`)
+- **OpenAI-compatible provider** -- Configure the endpoint and model with `OPENAI_BASE_URL` and `OPENAI_MODEL`
 - **npx** (ships with Node.js) -- Required by MCP PostgreSQL server
 
 ### Quick Start
@@ -654,7 +652,7 @@ uv pip install -e .
 # 3. Set up database
 psql -U postgres -c "CREATE DATABASE actuator_ai;"
 psql -U postgres -d actuator_ai -f backend/db/schema.sql
-psql -U postgres -d actuator_ai -f backend/db/seed.sql
+psql -U postgres -d actuator_ai -f backend/db/seed_data.sql
 
 # 4. Install frontend dependencies
 cd frontend && npm install && cd ..
@@ -752,7 +750,7 @@ actuator-ai/
 |   +-- db/
 |   |   +-- session.py                   # SQLModel engine + session
 |   |   +-- schema.sql                   # 21-table DDL
-|   |   +-- seed.sql                     # 1500+ rows seed data
+|   |   +-- seed_data.sql                # 1500+ rows seed data
 |   +-- models/
 |   |   +-- conversation.py              # SQLModel: Conversation, Message, Customer, SupportTicket
 |   |   +-- agent.py                     # Agent config model
@@ -776,11 +774,8 @@ actuator-ai/
 |
 +-- shared/                               # Cross-component packages
 |   +-- guardrails/safety.py             # 3 input + 1 output guardrails
-|   +-- models/                          # LLM provider abstraction (all route through OmniRouter)
-|   |   +-- ollama_provider.py           # Default import — delegates to factory
-|   |   +-- groq_provider.py             # Re-export from factory (legacy compat)
-|   |   +-- openai_provider.py           # Re-export from factory (legacy compat)
-|   |   +-- litellm_provider.py          # Direct LiteLLM (non-OmniRouter use only)
+|   +-- models/                          # OpenAI-compatible LLM provider
+|   |   +-- factory.py                   # AsyncOpenAI client and model factory
 |   +-- schemas/common.py                # Shared Pydantic models
 |   +-- tools/
 |   |   +-- db_tools.py                  # 18 database query/write tools
@@ -865,9 +860,9 @@ served by FastAPI; `backend/static/index.html` is only the local-dev fallback.
 | `POSTGRES_USER` | No | `postgres` | Database user |
 | `POSTGRES_PASSWORD` | Yes | -- | Database password |
 | `POSTGRES_DB` | No | `actuator_ai` | Database name |
-| `OMNIROUTER_BASE_URL` | Yes | `http://127.0.0.1:20128/v1` | OmniRouter endpoint |
-| `OMNIROUTER_API_KEY` | Yes | -- | OmniRouter auth token |
-| `OMNIROUTER_MODEL` | No | `auto` | Model string (use `auto` for smart routing) |
+| `OPENAI_API_KEY` | Yes | -- | Token for the configured OpenAI-compatible provider |
+| `OPENAI_BASE_URL` | Yes | -- | Provider base URL, for example Cloudflare Workers AI |
+| `OPENAI_MODEL` | Yes | -- | Model identifier supported by that provider |
 | `SECRET_KEY` | **Yes** | -- | JWT signing key -- **must be set in production** (`openssl rand -hex 32`) |
 | `API_V1_STR` | No | `/api/v1` | API prefix |
 
@@ -896,6 +891,6 @@ MIT License. See `LICENSE` for full text.
 
 - **OpenAI Agents SDK** -- Multi-agent orchestration framework providing handoffs, guardrails, function tools, and streaming
 - **FastAPI** -- High-performance async Python API framework with WebSocket support
-- **OmniRouter** -- Self-hosted AI gateway routing to 290+ providers with auto-failover and token compression
+- **Cloudflare Workers AI or another OpenAI-compatible provider** -- Model inference endpoint configured through environment variables
 - **Model Context Protocol** -- Standardized protocol for tool access and database integration
 - **Lucide** -- Open-source icon library with consistent SVG-based design system
