@@ -66,6 +66,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      platforms:
+        - "${DOCKER_PLATFORM:-linux/arm64}"
     image: actuator-ai:latest
     container_name: actuator-app
     platform: ${DOCKER_PLATFORM:-linux/arm64}

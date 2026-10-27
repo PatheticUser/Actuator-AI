@@ -41,7 +41,7 @@ RUN npm run build
 
 
 # ── Stage 2: Python runtime ────────────────────────────────────────────
-FROM python:3.11-slim-bookworm AS runtime
+FROM --platform=$TARGETPLATFORM python:3.11-slim-bookworm AS runtime
 
 # System deps:
 #   curl               -> container HEALTHCHECK
