@@ -247,6 +247,8 @@ docker exec actuator-app uname -m                  # → aarch64
 # a) Through the proxy (real user path — validates DNS + TLS + routing)
 curl -fsS https://<DOMAIN>/health
 #   {"status":"ok","database":"ok","project":"Actuator AI",...}
+#   (GET /healthz returns the identical payload — use it for external
+#    uptime monitors or a cloud load-balancer health probe.)
 
 # b) Direct container-to-container (bypasses Caddy)
 docker compose exec app curl -fsS http://localhost:8000/health

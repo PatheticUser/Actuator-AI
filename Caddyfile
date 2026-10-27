@@ -53,12 +53,14 @@
 		header Upgrade *
 	}
 
-	# …and forward the Upgrade/Connection headers verbatim to the app.
-	# Caddy sets X-Forwarded-For / X-Forwarded-Proto / Host itself.
+	# …and proxy it. Caddy's reverse_proxy already forwards Upgrade /
+	# Connection for WebSocket requests and sets X-Forwarded-For /
+	# X-Forwarded-Proto / Host itself — do NOT restate them with
+	# `header_up Upgrade|Connection`: on Caddy 2.11 that makes the proxy
+	# strip the hop-by-hop headers, the app receives a plain GET and
+	# answers 200 (SPA) instead of 101, so the chat socket never connects.
 	handle @websockets {
 		reverse_proxy app:8000 {
-			header_up Upgrade {>Upgrade}
-			header_up Connection {>Connection}
 			flush_interval -1 # push tokens the moment they are produced
 		}
 	}
@@ -91,8 +93,6 @@
 #	}
 #	handle @websockets {
 #		reverse_proxy app:8000 {
-#			header_up Upgrade {>Upgrade}
-#			header_up Connection {>Connection}
 #			flush_interval -1
 #		}
 #	}

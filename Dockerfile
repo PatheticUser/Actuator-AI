@@ -75,7 +75,8 @@ WORKDIR /app
 # Deterministic, cache-friendly dependency layer
 ENV UV_LINK_MODE=copy \
     UV_COMPILE_BYTECODE=1 \
-    UV_PYTHON_DOWNLOADS=automatic
+    UV_PYTHON_DOWNLOADS=automatic \
+    PYTHONUNBUFFERED=1
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
 

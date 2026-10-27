@@ -22,6 +22,14 @@ wheels/
 .idea/
 *.swp
 *.swo
+.freebuff/
+.github/
+
+# Not part of the image (Dockerfile COPYs only backend/, actuator_agents/,
+# shared/ and the built SPA) — keeps the build context small.
+tests/
+docs/
+.pytest_cache/
 
 # README must stay: pyproject.toml declares readme = "README.md"
 !README.md

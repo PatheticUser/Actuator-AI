@@ -106,7 +106,10 @@ app.include_router(agents_router, prefix=settings.API_V1_STR)
 app.include_router(auth_router, prefix=settings.API_V1_STR)
 
 
+# /healthz is the conventional probe path used by load balancers, uptime
+# monitors and OCI health checks; identical payload to /health.
 @app.get("/health")
+@app.get("/healthz")
 def health_check():
     db_status = "ok"
     try:

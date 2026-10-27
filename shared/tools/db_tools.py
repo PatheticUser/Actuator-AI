@@ -2,7 +2,7 @@
 
 Production tools that query PostgreSQL directly.
 Every agent uses these instead of hardcoded mock data.
-Connection uses rameez/pu00 @ actuator_ai.
+Connection settings come from DATABASE_URL / POSTGRES_* environment variables.
 """
 
 import contextlib
